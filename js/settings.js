@@ -58,18 +58,6 @@ window.FT.Settings = (function () {
     '</div>';
     html += '</div>';
 
-    // ---- Data Management Section ----
-    html += '<div class="settings-section">';
-    html += '<div class="settings-section__title">Data Management</div>';
-    html += '<div class="settings-section__body">';
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-      '<button class="btn btn-secondary btn-sm" id="export-data-btn">Export Data (JSON)</button>' +
-      '<button class="btn btn-secondary btn-sm" id="import-data-btn">Import Data</button>' +
-      '<input type="file" id="import-file" accept=".json" style="display:none;">' +
-    '</div>';
-    html += '<p style="margin-top:12px;font-size:0.8rem;color:var(--text-tertiary);">Export saves all planner data as a JSON file. Import replaces current data.</p>';
-    html += '</div>';
-    html += '</div>';
 
     container.innerHTML = html;
     wireUpEvents(container);
@@ -195,45 +183,6 @@ window.FT.Settings = (function () {
       });
     }
 
-    // ---- Data Management ----
-
-    var exportBtn = container.querySelector('#export-data-btn');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', function () {
-        var data = FT.Storage.exportAll();
-        var blob = new Blob([data], { type: 'application/json' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'ft-planner-backup-' + FT.Calendar.formatDate(new Date(), 'YYYY-MM-DD') + '.json';
-        a.click();
-        URL.revokeObjectURL(url);
-      });
-    }
-
-    var importBtn = container.querySelector('#import-data-btn');
-    var importFile = container.querySelector('#import-file');
-    if (importBtn && importFile) {
-      importBtn.addEventListener('click', function () {
-        importFile.click();
-      });
-      importFile.addEventListener('change', function () {
-        var file = this.files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function (e) {
-          if (confirm('This will replace all current data. Are you sure?')) {
-            if (FT.Storage.importAll(e.target.result)) {
-              showToast('Data imported successfully');
-              render(container);
-            } else {
-              showToast('Import failed — invalid file');
-            }
-          }
-        };
-        reader.readAsText(file);
-      });
-    }
   }
 
   function showToast(message) {
