@@ -96,10 +96,14 @@ function doPost(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ---- Config ----
+
+var SPREADSHEET_ID = '1QSlQTWJ0QcvrxFIGMzE4QZeJFT8FCl1yeZ5OG0_hFf8';
+
 // ---- Helpers ----
 
 function getSheet(name) {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  return SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(name);
 }
 
 function sheetToObjects(sheet) {
@@ -111,7 +115,15 @@ function sheetToObjects(sheet) {
     var obj = {};
     for (var j = 0; j < headers.length; j++) {
       var val = data[i][j];
-      obj[headers[j]] = (val === '' || val === null || val === undefined) ? '' : String(val);
+      // Handle Date objects from Sheets (format as YYYY-MM-DD)
+      if (val instanceof Date) {
+        var yyyy = val.getFullYear();
+        var mm = ('0' + (val.getMonth() + 1)).slice(-2);
+        var dd = ('0' + val.getDate()).slice(-2);
+        obj[headers[j]] = yyyy + '-' + mm + '-' + dd;
+      } else {
+        obj[headers[j]] = (val === '' || val === null || val === undefined) ? '' : String(val);
+      }
     }
     // Skip completely empty rows
     if (Object.values(obj).every(function(v) { return v === ''; })) continue;

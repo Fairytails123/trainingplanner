@@ -57,6 +57,7 @@ window.FT.Storage = (function () {
 
   /**
    * Fire-and-forget POST to Sheets API. Does not block the UI.
+   * Uses no-cors mode because Apps Script redirects POST requests.
    */
   function syncToSheets(action, data) {
     var url = getSheetsUrl();
@@ -64,8 +65,11 @@ window.FT.Storage = (function () {
 
     fetch(url, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: action, data: data })
+    }).then(function () {
+      console.log('Sheets sync sent (' + action + ')');
     }).catch(function (err) {
       console.warn('Sheets sync failed (' + action + '):', err.message);
     });
@@ -159,12 +163,14 @@ window.FT.Storage = (function () {
 
     fetch(url, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (onComplete) onComplete(data.success);
+      .then(function () {
+        // no-cors returns opaque response, assume success if no error
+        console.log('Full push sent to Sheets');
+        if (onComplete) onComplete(true);
       })
       .catch(function (err) {
         console.warn('Sheets full push failed:', err.message);
