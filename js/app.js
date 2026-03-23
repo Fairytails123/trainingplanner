@@ -37,6 +37,14 @@ window.FT = window.FT || {};
 
     // Render initial view
     navigateTo('planner');
+
+    // Sync from Google Sheets in background (if configured)
+    FT.Storage.syncFromSheets(function (success) {
+      if (success) {
+        // Re-render current view with fresh data
+        navigateTo(currentView);
+      }
+    });
   }
 
   function navigateTo(viewName) {

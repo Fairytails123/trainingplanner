@@ -1,5 +1,6 @@
 /* ============================================
-   storage.js — Data persistence layer (localStorage)
+   storage.js — Data persistence layer
+   localStorage + Google Sheets sync
    ============================================ */
 
 window.FT = window.FT || {};
@@ -7,21 +8,22 @@ window.FT = window.FT || {};
 window.FT.Storage = (function () {
   'use strict';
 
-  const KEYS = {
+  var KEYS = {
     dogs: 'ft_dogs',
     configSlots: 'ft_config_timeslots',
-    configEquipment: 'ft_config_equipment'
+    configEquipment: 'ft_config_equipment',
+    sheetsUrl: 'ft_sheets_api_url'
   };
 
   function slotKey(dateStr) {
     return 'ft_slots_' + dateStr;
   }
 
-  // ---- Helpers ----
+  // ---- localStorage helpers ----
 
   function read(key) {
     try {
-      const raw = localStorage.getItem(key);
+      var raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
       console.error('Storage read error for ' + key, e);
@@ -39,6 +41,147 @@ window.FT.Storage = (function () {
 
   function generateId(prefix) {
     return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  // ---- Google Sheets sync ----
+
+  function getSheetsUrl() {
+    return localStorage.getItem(KEYS.sheetsUrl) || '';
+  }
+
+  function setSheetsUrl(url) {
+    localStorage.setItem(KEYS.sheetsUrl, url || '');
+  }
+
+  /**
+   * Fire-and-forget POST to Sheets API. Does not block the UI.
+   */
+  function syncToSheets(action, data) {
+    var url = getSheetsUrl();
+    if (!url) return;
+
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: action, data: data })
+    }).catch(function (err) {
+      console.warn('Sheets sync failed (' + action + '):', err.message);
+    });
+  }
+
+  /**
+   * Pull all data from Sheets and merge into localStorage.
+   * Returns a Promise that resolves when done.
+   */
+  function syncFromSheets(onComplete) {
+    var url = getSheetsUrl();
+    if (!url) {
+      if (onComplete) onComplete(false);
+      return;
+    }
+
+    fetch(url + '?action=getAll')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data.success) {
+          console.warn('Sheets getAll failed:', data.error);
+          if (onComplete) onComplete(false);
+          return;
+        }
+
+        // Merge dogs
+        if (data.dogs && data.dogs.length > 0) {
+          write(KEYS.dogs, data.dogs);
+        }
+
+        // Merge slot assignments by date
+        if (data.slotsByDate) {
+          Object.keys(data.slotsByDate).forEach(function (dateStr) {
+            var existing = read(slotKey(dateStr)) || {};
+            var fromSheets = data.slotsByDate[dateStr];
+            // Sheets data wins (it's the shared source of truth)
+            var merged = Object.assign({}, existing, fromSheets);
+            write(slotKey(dateStr), merged);
+          });
+        }
+
+        // Merge config
+        if (data.timeSlots && data.timeSlots.length > 0) {
+          write(KEYS.configSlots, data.timeSlots);
+        }
+        if (data.equipment && data.equipment.length > 0) {
+          write(KEYS.configEquipment, data.equipment);
+        }
+
+        console.log('Synced from Sheets');
+        if (onComplete) onComplete(true);
+      })
+      .catch(function (err) {
+        console.warn('Sheets sync pull failed:', err.message);
+        if (onComplete) onComplete(false);
+      });
+  }
+
+  /**
+   * Push ALL current localStorage data to Sheets (full sync).
+   */
+  function pushAllToSheets(onComplete) {
+    var url = getSheetsUrl();
+    if (!url) {
+      if (onComplete) onComplete(false);
+      return;
+    }
+
+    // Gather all slot assignments from localStorage
+    var assignments = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (key.startsWith('ft_slots_')) {
+        var dateStr = key.replace('ft_slots_', '');
+        var daySlots = read(key) || {};
+        Object.keys(daySlots).forEach(function (dogId) {
+          assignments.push(daySlots[dogId]);
+        });
+      }
+    }
+
+    var payload = {
+      action: 'syncAll',
+      data: {
+        dogs: getDogs(),
+        assignments: assignments,
+        timeSlots: getTimeSlots(),
+        equipment: getEquipment()
+      }
+    };
+
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (onComplete) onComplete(data.success);
+      })
+      .catch(function (err) {
+        console.warn('Sheets full push failed:', err.message);
+        if (onComplete) onComplete(false);
+      });
+  }
+
+  /**
+   * Test connection to the Sheets API.
+   */
+  function testSheetsConnection(url, onResult) {
+    fetch(url + '?action=ping')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        onResult(data.success === true, data.message || 'Connected');
+      })
+      .catch(function (err) {
+        onResult(false, err.message);
+      });
   }
 
   // ---- Default configs ----
@@ -97,6 +240,7 @@ window.FT.Storage = (function () {
     }
 
     write(KEYS.dogs, dogs);
+    syncToSheets('saveDog', dog);
     return dog;
   }
 
@@ -107,6 +251,7 @@ window.FT.Storage = (function () {
       dogs[idx].archived = true;
       dogs[idx].updatedAt = new Date().toISOString();
       write(KEYS.dogs, dogs);
+      syncToSheets('archiveDog', { id: id });
     }
   }
 
@@ -144,12 +289,14 @@ window.FT.Storage = (function () {
     }
 
     write(slotKey(dateStr), slots);
+    syncToSheets('setSlot', { dogId: dogId, date: dateStr, slotId: slotId || '', createdAt: slots[dogId] ? slots[dogId].createdAt : now, updatedAt: now });
   }
 
   function removeSlot(dateStr, dogId) {
     var slots = getSlots(dateStr);
     delete slots[dogId];
     write(slotKey(dateStr), slots);
+    syncToSheets('removeSlot', { dogId: dogId, date: dateStr });
   }
 
   function getSlotsForWeek(dates) {
@@ -174,6 +321,7 @@ window.FT.Storage = (function () {
 
   function saveTimeSlots(slots) {
     write(KEYS.configSlots, slots);
+    syncToSheets('saveTimeSlots', slots);
   }
 
   // ---- Config: Equipment ----
@@ -189,6 +337,7 @@ window.FT.Storage = (function () {
 
   function saveEquipment(items) {
     write(KEYS.configEquipment, items);
+    syncToSheets('saveEquipment', items);
   }
 
   // ---- Export / Import ----
@@ -237,6 +386,11 @@ window.FT.Storage = (function () {
     getEquipment: getEquipment,
     saveEquipment: saveEquipment,
     exportAll: exportAll,
-    importAll: importAll
+    importAll: importAll,
+    getSheetsUrl: getSheetsUrl,
+    setSheetsUrl: setSheetsUrl,
+    syncFromSheets: syncFromSheets,
+    pushAllToSheets: pushAllToSheets,
+    testSheetsConnection: testSheetsConnection
   };
 })();
