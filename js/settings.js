@@ -12,25 +12,6 @@ window.FT.Settings = (function () {
     var equipment = FT.Storage.getEquipment();
 
     var html = '';
-    var sheetsUrl = FT.Storage.getSheetsUrl();
-
-    // ---- Google Sheets Sync Section ----
-    html += '<div class="settings-section">';
-    html += '<div class="settings-section__title">Google Sheets Sync</div>';
-    html += '<div class="settings-section__body">';
-    html += '<div class="form-group">' +
-      '<label class="form-label">Apps Script Web App URL</label>' +
-      '<input type="url" class="form-input" id="sheets-url" value="' + (sheetsUrl || '') + '" placeholder="https://script.google.com/macros/s/...">' +
-    '</div>';
-    html += '<div id="sheets-status" style="font-size:0.85rem;margin-bottom:12px;"></div>';
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-      '<button class="btn btn-secondary btn-sm" id="test-sheets-btn">Test Connection</button>' +
-      '<button class="btn btn-secondary btn-sm" id="sync-pull-btn">Pull from Sheets</button>' +
-      '<button class="btn btn-primary btn-sm" id="sync-push-btn">Push All to Sheets</button>' +
-    '</div>';
-    html += '<p style="margin-top:12px;font-size:0.8rem;color:var(--text-tertiary);">Enter the URL from your deployed Google Apps Script. The display TV and planner will share data through this sheet.</p>';
-    html += '</div>';
-    html += '</div>';
 
     // ---- Time Slots Section ----
     html += '<div class="settings-section">';
@@ -96,69 +77,6 @@ window.FT.Settings = (function () {
 
   function wireUpEvents(container) {
     // ---- Sheets sync events ----
-
-    var sheetsUrlInput = container.querySelector('#sheets-url');
-    var sheetsStatus = container.querySelector('#sheets-status');
-
-    // Save URL on blur
-    if (sheetsUrlInput) {
-      sheetsUrlInput.addEventListener('change', function () {
-        FT.Storage.setSheetsUrl(this.value.trim());
-        sheetsStatus.innerHTML = '<span style="color:var(--text-secondary);">URL saved.</span>';
-      });
-    }
-
-    // Test connection
-    var testBtn = container.querySelector('#test-sheets-btn');
-    if (testBtn) {
-      testBtn.addEventListener('click', function () {
-        var url = sheetsUrlInput.value.trim();
-        if (!url) {
-          sheetsStatus.innerHTML = '<span style="color:var(--conflict-red);">Please enter a URL first.</span>';
-          return;
-        }
-        FT.Storage.setSheetsUrl(url);
-        sheetsStatus.innerHTML = '<span style="color:var(--text-secondary);">Testing...</span>';
-        FT.Storage.testSheetsConnection(url, function (success, message) {
-          if (success) {
-            sheetsStatus.innerHTML = '<span style="color:#27500A;">&#10003; ' + message + '</span>';
-          } else {
-            sheetsStatus.innerHTML = '<span style="color:var(--conflict-red);">&#10007; Failed: ' + message + '</span>';
-          }
-        });
-      });
-    }
-
-    // Pull from Sheets
-    var pullBtn = container.querySelector('#sync-pull-btn');
-    if (pullBtn) {
-      pullBtn.addEventListener('click', function () {
-        sheetsStatus.innerHTML = '<span style="color:var(--text-secondary);">Pulling data from Sheets...</span>';
-        FT.Storage.syncFromSheets(function (success) {
-          if (success) {
-            sheetsStatus.innerHTML = '<span style="color:#27500A;">&#10003; Data pulled successfully. Reload to see changes.</span>';
-          } else {
-            sheetsStatus.innerHTML = '<span style="color:var(--conflict-red);">&#10007; Pull failed. Check URL and try again.</span>';
-          }
-        });
-      });
-    }
-
-    // Push all to Sheets
-    var pushBtn = container.querySelector('#sync-push-btn');
-    if (pushBtn) {
-      pushBtn.addEventListener('click', function () {
-        if (!confirm('This will overwrite all data in the Google Sheet with your local data. Continue?')) return;
-        sheetsStatus.innerHTML = '<span style="color:var(--text-secondary);">Pushing all data to Sheets...</span>';
-        FT.Storage.pushAllToSheets(function (success) {
-          if (success) {
-            sheetsStatus.innerHTML = '<span style="color:#27500A;">&#10003; All data pushed to Sheets.</span>';
-          } else {
-            sheetsStatus.innerHTML = '<span style="color:var(--conflict-red);">&#10007; Push failed. Check URL and try again.</span>';
-          }
-        });
-      });
-    }
 
     // ---- Slot events ----
 
