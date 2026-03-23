@@ -8,6 +8,8 @@ window.FT = window.FT || {};
 window.FT.Storage = (function () {
   'use strict';
 
+  var DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzBzTZKpAHKidIsa653UWCo-TbUOgxCTbqyE69obmV2rij_0cJsnSsciOcZci564RrR/exec';
+
   var KEYS = {
     dogs: 'ft_dogs',
     configSlots: 'ft_config_timeslots',
@@ -46,7 +48,7 @@ window.FT.Storage = (function () {
   // ---- Google Sheets sync ----
 
   function getSheetsUrl() {
-    return localStorage.getItem(KEYS.sheetsUrl) || '';
+    return localStorage.getItem(KEYS.sheetsUrl) || DEFAULT_SHEETS_URL;
   }
 
   function setSheetsUrl(url) {
