@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ft-planner-v1';
+const CACHE_NAME = 'ft-planner-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -35,21 +35,28 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Network-first strategy: try network, fall back to cache
+// This ensures updates are picked up immediately
 self.addEventListener('fetch', event => {
+  // Skip non-GET requests (let API calls through directly)
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(response => {
-        if (response.ok && event.request.method === 'GET') {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      });
-    }).catch(() => {
-      if (event.request.destination === 'document') {
-        return caches.match('./index.html');
+    fetch(event.request).then(response => {
+      // Update cache with fresh response
+      if (response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
       }
+      return response;
+    }).catch(() => {
+      // Network failed — fall back to cache (offline support)
+      return caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        if (event.request.destination === 'document') {
+          return caches.match('./index.html');
+        }
+      });
     })
   );
 });
