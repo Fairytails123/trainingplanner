@@ -76,8 +76,83 @@ window.FT.Storage = (function () {
   }
 
   /**
-   * Pull all data from Sheets and merge into localStorage.
-   * Returns a Promise that resolves when done.
+   * Merge two dog lists by ID. Local-only dogs are preserved and pushed to Sheet.
+   * For duplicates, the one with the newer updatedAt wins.
+   */
+  function mergeDogLists(localDogs, sheetDogs) {
+    var sheetMap = {};
+    sheetDogs.forEach(function (d) { sheetMap[d.id] = d; });
+
+    var localMap = {};
+    localDogs.forEach(function (d) { localMap[d.id] = d; });
+
+    var merged = [];
+    var localOnly = [];
+
+    // All local dogs: keep them, check if Sheet has a newer version
+    localDogs.forEach(function (local) {
+      var sheet = sheetMap[local.id];
+      if (sheet) {
+        // Both exist: keep the one with newer updatedAt (or createdAt as fallback)
+        var localTime = local.updatedAt || local.createdAt || '';
+        var sheetTime = sheet.updatedAt || sheet.createdAt || '';
+        if (sheetTime > localTime) {
+          merged.push(sheet);
+        } else {
+          merged.push(local);
+        }
+      } else {
+        // Local only: keep and flag for push to Sheet
+        merged.push(local);
+        localOnly.push(local);
+      }
+    });
+
+    // Sheet-only dogs: add to local
+    sheetDogs.forEach(function (sheet) {
+      if (!localMap[sheet.id]) {
+        merged.push(sheet);
+      }
+    });
+
+    return { all: merged, localOnly: localOnly };
+  }
+
+  /**
+   * Merge slot assignments for a single date. Same logic: local-only slots get pushed.
+   */
+  function mergeSlotAssignments(localSlots, sheetSlots) {
+    var merged = Object.assign({}, localSlots);
+    var localOnly = [];
+
+    // Sheet slots override local (or add new)
+    Object.keys(sheetSlots).forEach(function (dogId) {
+      var sheet = sheetSlots[dogId];
+      var local = localSlots[dogId];
+      if (local) {
+        var localTime = local.updatedAt || local.createdAt || '';
+        var sheetTime = sheet.updatedAt || sheet.createdAt || '';
+        if (sheetTime > localTime) {
+          merged[dogId] = sheet;
+        }
+      } else {
+        merged[dogId] = sheet;
+      }
+    });
+
+    // Find local-only assignments to push
+    Object.keys(localSlots).forEach(function (dogId) {
+      if (!sheetSlots[dogId]) {
+        localOnly.push(localSlots[dogId]);
+      }
+    });
+
+    return { all: merged, localOnly: localOnly };
+  }
+
+  /**
+   * Pull all data from Sheets and two-way merge with localStorage.
+   * Local-only dogs and assignments are automatically pushed to the Sheet.
    */
   function syncFromSheets(onComplete) {
     var url = getSheetsUrl();
@@ -95,23 +170,52 @@ window.FT.Storage = (function () {
           return;
         }
 
-        // Merge dogs
-        if (data.dogs && data.dogs.length > 0) {
-          write(KEYS.dogs, data.dogs);
-        }
+        // Two-way merge dogs
+        var localDogs = getDogs();
+        var sheetDogs = data.dogs || [];
+        var dogMerge = mergeDogLists(localDogs, sheetDogs);
+        write(KEYS.dogs, dogMerge.all);
 
-        // Merge slot assignments by date
-        if (data.slotsByDate) {
-          Object.keys(data.slotsByDate).forEach(function (dateStr) {
-            var existing = read(slotKey(dateStr)) || {};
-            var fromSheets = data.slotsByDate[dateStr];
-            // Sheets data wins (it's the shared source of truth)
-            var merged = Object.assign({}, existing, fromSheets);
-            write(slotKey(dateStr), merged);
+        // Push local-only dogs to Sheet
+        if (dogMerge.localOnly.length > 0) {
+          console.log('Pushing ' + dogMerge.localOnly.length + ' local-only dogs to Sheet');
+          dogMerge.localOnly.forEach(function (dog) {
+            syncToSheets('saveDog', dog);
           });
         }
 
-        // Merge config
+        // Two-way merge slot assignments by date
+        if (data.slotsByDate) {
+          // Merge dates that exist in Sheet
+          Object.keys(data.slotsByDate).forEach(function (dateStr) {
+            var localSlots = read(slotKey(dateStr)) || {};
+            var sheetSlots = data.slotsByDate[dateStr];
+            var slotMerge = mergeSlotAssignments(localSlots, sheetSlots);
+            write(slotKey(dateStr), slotMerge.all);
+
+            // Push local-only assignments
+            slotMerge.localOnly.forEach(function (assignment) {
+              syncToSheets('setSlot', assignment);
+            });
+          });
+        }
+
+        // Also push any local date slots that aren't in the Sheet at all
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.startsWith('ft_slots_')) {
+            var dateStr = key.replace('ft_slots_', '');
+            if (!data.slotsByDate || !data.slotsByDate[dateStr]) {
+              // This entire date's assignments are local-only
+              var localOnlySlots = read(key) || {};
+              Object.keys(localOnlySlots).forEach(function (dogId) {
+                syncToSheets('setSlot', localOnlySlots[dogId]);
+              });
+            }
+          }
+        }
+
+        // Merge config (Sheet wins for config since it's shared)
         if (data.timeSlots && data.timeSlots.length > 0) {
           write(KEYS.configSlots, data.timeSlots);
         }
@@ -119,7 +223,7 @@ window.FT.Storage = (function () {
           write(KEYS.configEquipment, data.equipment);
         }
 
-        console.log('Synced from Sheets');
+        console.log('Two-way sync complete (' + dogMerge.all.length + ' dogs)');
         if (onComplete) onComplete(true);
       })
       .catch(function (err) {

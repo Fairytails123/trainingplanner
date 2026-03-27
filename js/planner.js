@@ -332,6 +332,7 @@ window.FT.Planner = (function () {
         (conflictCount > 0 ? '<span class="conflict-badge">' + conflictCount + ' conflict' + (conflictCount > 1 ? 's' : '') + '</span>' : '') +
       '</div>' +
       '<div class="week-nav__actions">' +
+        '<button class="btn btn-secondary btn-sm" id="sync-btn" title="Sync with Google Sheets">&#8635; Sync</button>' +
         '<button class="btn btn-primary btn-sm" id="add-dog-btn">+ Add Dog</button>' +
       '</div>' +
     '</div>';
@@ -504,6 +505,23 @@ window.FT.Planner = (function () {
     if (addBtn) {
       addBtn.addEventListener('click', function () {
         openDogModal(null, function () { render(container); });
+      });
+    }
+
+    // Sync button
+    var syncBtn = container.querySelector('#sync-btn');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', function () {
+        syncBtn.disabled = true;
+        syncBtn.textContent = 'Syncing...';
+        FT.Storage.pushAllToSheets(function () {
+          FT.Storage.syncFromSheets(function () {
+            syncBtn.textContent = '\u21BB Synced!';
+            setTimeout(function () {
+              render(container);
+            }, 800);
+          });
+        });
       });
     }
 
