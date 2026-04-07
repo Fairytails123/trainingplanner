@@ -281,6 +281,18 @@ body {
   font-weight: 400;
 }
 
+.dog-card__week-badge {
+  background: var(--ft-orange-light);
+  color: var(--ft-orange);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 1px solid var(--ft-orange);
+}
+
 .dog-card__menu {
   color: var(--text-tertiary);
   font-size: 1.2rem;
@@ -972,6 +984,12 @@ textarea.form-input {
     z-index: 11;
   }
 
+  .planner-table th.col-week {
+    text-align: center;
+    min-width: 40px;
+    width: 40px;
+  }
+
   .planner-table th.col-equipment {
     text-align: left;
     min-width: 120px;
@@ -993,6 +1011,19 @@ textarea.form-input {
     z-index: 5;
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  .planner-table td.cell-week {
+    text-align: center;
+    font-weight: 600;
+    color: var(--ft-orange);
+    cursor: pointer;
+    min-width: 40px;
+    width: 40px;
+  }
+
+  .planner-table td.cell-week:hover {
+    background: var(--ft-orange-light);
   }
 
   .planner-table td.cell-equipment {

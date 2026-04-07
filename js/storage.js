@@ -321,6 +321,52 @@ window.FT.Storage = (function () {
     { id: 'crate',       label: 'Crate',        colour: '#F1EFE8', textColour: '#444441' }
   ];
 
+  // ---- Week number auto-increment ----
+
+  function getCurrentMondayStr() {
+    var today = new Date();
+    var day = today.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    var monday = new Date(today);
+    monday.setDate(today.getDate() + diff);
+    var mm = String(monday.getMonth() + 1).padStart(2, '0');
+    var dd = String(monday.getDate()).padStart(2, '0');
+    return monday.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  function autoIncrementWeekNumbers() {
+    var dogs = read(KEYS.dogs) || [];
+    var currentMonday = getCurrentMondayStr();
+    var changed = false;
+
+    dogs.forEach(function (dog) {
+      if (dog.weekNumber == null) return;
+      if (!dog.weekNumberSetDate) {
+        dog.weekNumberSetDate = currentMonday;
+        changed = true;
+        return;
+      }
+      if (dog.weekNumberSetDate < currentMonday) {
+        var setDate = new Date(dog.weekNumberSetDate + 'T00:00:00');
+        var curDate = new Date(currentMonday + 'T00:00:00');
+        var weeksElapsed = Math.round((curDate - setDate) / (7 * 24 * 60 * 60 * 1000));
+        dog.weekNumber += weeksElapsed;
+        dog.weekNumberSetDate = currentMonday;
+        dog.updatedAt = new Date().toISOString();
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      write(KEYS.dogs, dogs);
+      dogs.forEach(function (dog) {
+        if (dog.weekNumber != null) {
+          syncToSheets('saveDog', dog);
+        }
+      });
+    }
+  }
+
   // ---- Dogs ----
 
   function getDogs() {
@@ -503,6 +549,7 @@ window.FT.Storage = (function () {
     setSheetsUrl: setSheetsUrl,
     syncFromSheets: syncFromSheets,
     pushAllToSheets: pushAllToSheets,
-    testSheetsConnection: testSheetsConnection
+    testSheetsConnection: testSheetsConnection,
+    autoIncrementWeekNumbers: autoIncrementWeekNumbers
   };
 })();

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ft-planner-v2';
+const CACHE_NAME = 'ft-planner-v3';
 const ASSETS = [
   './',
   './index.html',

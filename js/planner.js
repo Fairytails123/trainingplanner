@@ -220,6 +220,10 @@ window.FT.Planner = (function () {
         '<input type="text" class="form-input" id="dog-owner" value="' + (editDog.ownerName || '') + '" placeholder="e.g. Sarah Jones">' +
       '</div>' +
       '<div class="form-group">' +
+        '<label class="form-label">Training week</label>' +
+        '<input type="number" class="form-input" id="dog-week-number" min="0" value="' + (editDog.weekNumber != null ? editDog.weekNumber : '') + '" placeholder="e.g. 5 (leave blank if not tracking)">' +
+      '</div>' +
+      '<div class="form-group">' +
         '<label class="form-label">Equipment defaults</label>' +
         '<div id="dog-equipment-picker">' + FT.Equipment.renderPickerChips(selectedEquipment) + '</div>' +
       '</div>' +
@@ -282,6 +286,24 @@ window.FT.Planner = (function () {
           editDog.ownerName = modal.querySelector('#dog-owner').value.trim();
           editDog.equipment = selectedEquipment;
           editDog.notes = modal.querySelector('#dog-notes').value.trim();
+
+          // Training week number
+          var weekVal = modal.querySelector('#dog-week-number').value.trim();
+          if (weekVal !== '') {
+            editDog.weekNumber = parseInt(weekVal) || 0;
+            // Set the anchor date to current Monday so auto-increment starts from now
+            var today = new Date();
+            var day = today.getDay();
+            var diff = day === 0 ? -6 : 1 - day;
+            var monday = new Date(today);
+            monday.setDate(today.getDate() + diff);
+            var mm = String(monday.getMonth() + 1).padStart(2, '0');
+            var dd = String(monday.getDate()).padStart(2, '0');
+            editDog.weekNumberSetDate = monday.getFullYear() + '-' + mm + '-' + dd;
+          } else {
+            editDog.weekNumber = null;
+            editDog.weekNumberSetDate = null;
+          }
 
           FT.Storage.saveDog(editDog);
           close();
@@ -375,11 +397,13 @@ window.FT.Planner = (function () {
       html += '<div class="dog-card' + (isExpanded ? ' expanded' : '') + '" data-dog-id="' + dog.id + '">';
 
       // Header
+      var wkNum = dog.weekNumber != null ? dog.weekNumber : '';
       html += '<div class="dog-card__header">' +
         '<span class="dog-card__chevron">&#9658;</span>' +
         '<span class="dog-card__name">' + dog.name +
           (dog.breed ? '<span class="dog-card__breed">— ' + dog.breed + '</span>' : '') +
         '</span>' +
+        (wkNum !== '' ? '<span class="dog-card__week-badge" data-week-dog="' + dog.id + '" title="Training week (tap to edit)">Wk ' + wkNum + '</span>' : '') +
         '<button class="btn-icon dog-card__menu" data-edit-dog="' + dog.id + '" aria-label="Edit dog">&#9998;</button>' +
       '</div>';
 
@@ -427,6 +451,7 @@ window.FT.Planner = (function () {
     // Header
     html += '<thead><tr>';
     html += '<th class="col-dog">Dog</th>';
+    html += '<th class="col-week">Wk</th>';
     html += '<th class="col-equipment">Equipment</th>';
 
     dates.forEach(function (date) {
@@ -447,6 +472,10 @@ window.FT.Planner = (function () {
         (dog.breed ? '<br><small style="color:var(--text-secondary);font-weight:400;">' + dog.breed + '</small>' : '') +
         '<br><button class="btn-sm btn-secondary" style="margin-top:4px;font-size:0.7rem;" data-edit-dog="' + dog.id + '">Edit</button>' +
       '</td>';
+
+      // Week number cell
+      var tblWk = dog.weekNumber != null ? dog.weekNumber : '—';
+      html += '<td class="cell-week" data-week-dog="' + dog.id + '" title="Click to edit training week">' + tblWk + '</td>';
 
       // Equipment cell
       html += '<td class="cell-equipment">' +
@@ -546,6 +575,36 @@ window.FT.Planner = (function () {
         if (dog) {
           openDogModal(dog, function () { render(container); });
         }
+      });
+    });
+
+    // Week number badge clicks (tap to edit)
+    container.querySelectorAll('[data-week-dog]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var dogId = this.dataset.weekDog;
+        var dog = FT.Storage.getDog(dogId);
+        if (!dog) return;
+        var current = dog.weekNumber != null ? dog.weekNumber : '';
+        var newVal = prompt('Training week for ' + dog.name + ':', current);
+        if (newVal === null) return; // cancelled
+        newVal = newVal.trim();
+        if (newVal === '') {
+          dog.weekNumber = null;
+          dog.weekNumberSetDate = null;
+        } else {
+          dog.weekNumber = parseInt(newVal) || 0;
+          var today = new Date();
+          var day = today.getDay();
+          var diff = day === 0 ? -6 : 1 - day;
+          var monday = new Date(today);
+          monday.setDate(today.getDate() + diff);
+          var mm = String(monday.getMonth() + 1).padStart(2, '0');
+          var dd = String(monday.getDate()).padStart(2, '0');
+          dog.weekNumberSetDate = monday.getFullYear() + '-' + mm + '-' + dd;
+        }
+        FT.Storage.saveDog(dog);
+        render(container);
       });
     });
 

@@ -17,6 +17,9 @@ window.FT = window.FT || {};
     FT.Storage.getTimeSlots();
     FT.Storage.getEquipment();
 
+    // Auto-increment training week numbers if a new week has started
+    FT.Storage.autoIncrementWeekNumbers();
+
     // Load week from URL hash
     FT.Planner.loadFromHash();
 
