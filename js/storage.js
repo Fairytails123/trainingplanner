@@ -87,7 +87,41 @@ window.FT.Storage = (function () {
       var n = parseInt(dog.weekNumber, 10);
       dog.weekNumber = isNaN(n) ? null : n;
     }
+    repairWeekNumber(dog);
     return dog;
+  }
+
+  /**
+   * One-time repair for values corrupted by the pre-fix concatenation bug.
+   *
+   * Before commit d053912, autoIncrementWeekNumbers did `dog.weekNumber += weeksElapsed`
+   * with weekNumber arriving from the sheet as a string. `"11" + 1` produced "111",
+   * `"3" + 1` produced "31", etc. The fix prevents new corruption but leaves the
+   * already-broken values in localStorage and the Google Sheet.
+   *
+   * weeksElapsed is always single-digit in practice (autoIncrement runs every Monday),
+   * so the corruption always appended exactly one digit. Any weekNumber >= 100 is
+   * implausible for a real training dog and is unambiguously a corrupted value —
+   * stripping the trailing digit recovers the original (111 → 11, 222 → 22).
+   *
+   * Values 10–99 are left alone: they could be real (a dog at week 31 is plausible)
+   * and there's no safe way to disambiguate without user input. Edit those manually
+   * via the planner UI if needed.
+   *
+   * Returns true if the dog was repaired (caller should mark changed and sync).
+   */
+  function repairWeekNumber(dog) {
+    var n = parseInt(dog.weekNumber, 10);
+    if (isNaN(n) || n < 100) return false;
+    var fixed = Math.floor(n / 10);
+    console.warn(
+      '[FT.Storage] Repaired corrupted weekNumber for "' + (dog.name || dog.id) + '": ' +
+      n + ' → ' + fixed +
+      ' (pre-d053912 concatenation bug; values 10–99 left alone, edit manually if wrong)'
+    );
+    dog.weekNumber = fixed;
+    dog.updatedAt = new Date().toISOString();
+    return true;
   }
 
   /**
@@ -355,12 +389,21 @@ window.FT.Storage = (function () {
     var dogs = read(KEYS.dogs) || [];
     var currentMonday = getCurrentMondayStr();
     var changed = false;
+    var touched = {}; // dog ids that need pushing to Sheets
 
     dogs.forEach(function (dog) {
+      // Repair any pre-d053912 corrupted values BEFORE we increment, so
+      // we don't accidentally compound the corruption on a Monday boundary.
+      if (repairWeekNumber(dog)) {
+        changed = true;
+        touched[dog.id] = true;
+      }
+
       if (dog.weekNumber == null) return;
       if (!dog.weekNumberSetDate) {
         dog.weekNumberSetDate = currentMonday;
         changed = true;
+        touched[dog.id] = true;
         return;
       }
       if (dog.weekNumberSetDate < currentMonday) {
@@ -373,13 +416,15 @@ window.FT.Storage = (function () {
         dog.weekNumberSetDate = currentMonday;
         dog.updatedAt = new Date().toISOString();
         changed = true;
+        touched[dog.id] = true;
       }
     });
 
     if (changed) {
       write(KEYS.dogs, dogs);
+      // Only sync the dogs we actually touched — avoid spamming Sheets with no-ops.
       dogs.forEach(function (dog) {
-        if (dog.weekNumber != null) {
+        if (touched[dog.id] && dog.weekNumber != null) {
           syncToSheets('saveDog', dog);
         }
       });
