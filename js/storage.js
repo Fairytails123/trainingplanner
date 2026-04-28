@@ -76,10 +76,27 @@ window.FT.Storage = (function () {
   }
 
   /**
+   * Sheet cells come back as strings (Apps Script does String(val) on every cell),
+   * so weekNumber needs to be parsed back to a Number before it lands in localStorage —
+   * otherwise the auto-increment's `+=` does string concatenation.
+   */
+  function normalizeDogFromSheet(dog) {
+    if (dog.weekNumber === '' || dog.weekNumber == null) {
+      dog.weekNumber = null;
+    } else {
+      var n = parseInt(dog.weekNumber, 10);
+      dog.weekNumber = isNaN(n) ? null : n;
+    }
+    return dog;
+  }
+
+  /**
    * Merge two dog lists by ID. Local-only dogs are preserved and pushed to Sheet.
    * For duplicates, the one with the newer updatedAt wins.
    */
   function mergeDogLists(localDogs, sheetDogs) {
+    sheetDogs.forEach(normalizeDogFromSheet);
+
     var sheetMap = {};
     sheetDogs.forEach(function (d) { sheetMap[d.id] = d; });
 
@@ -350,7 +367,9 @@ window.FT.Storage = (function () {
         var setDate = new Date(dog.weekNumberSetDate + 'T00:00:00');
         var curDate = new Date(currentMonday + 'T00:00:00');
         var weeksElapsed = Math.round((curDate - setDate) / (7 * 24 * 60 * 60 * 1000));
-        dog.weekNumber += weeksElapsed;
+        // Coerce weekNumber to integer before adding — sheet round-trips can stringify it,
+        // and `string += number` does concatenation (e.g. "11" + 1 → "111").
+        dog.weekNumber = (parseInt(dog.weekNumber, 10) || 0) + weeksElapsed;
         dog.weekNumberSetDate = currentMonday;
         dog.updatedAt = new Date().toISOString();
         changed = true;
