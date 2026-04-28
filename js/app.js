@@ -1,5 +1,5 @@
 /* ============================================
-   app.js — App initialisation and routing
+   app.js — App init, routing, tab bar
    ============================================ */
 
 window.FT = window.FT || {};
@@ -9,28 +9,36 @@ window.FT = window.FT || {};
 
   var currentView = 'planner';
   var appContent = null;
+  var headerEl = null;
 
   function init() {
     appContent = document.getElementById('app-content');
+    headerEl = document.querySelector('.app-header');
 
-    // Seed default config
     FT.Storage.getTimeSlots();
     FT.Storage.getEquipment();
-
-    // Auto-increment training week numbers if a new week has started
     FT.Storage.autoIncrementWeekNumbers();
-
-    // Load week from URL hash
     FT.Planner.loadFromHash();
 
-    // Wire up nav buttons
-    document.querySelectorAll('.nav-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        navigateTo(this.dataset.view);
-      });
+    // Tab buttons
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { navigateTo(this.dataset.view); });
     });
 
-    // Hash change listener
+    // Header sync button
+    var syncBtn = document.getElementById('header-sync-btn');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', function () {
+        syncBtn.classList.add('is-syncing');
+        FT.Storage.pushAllToSheets(function () {
+          FT.Storage.syncFromSheets(function () {
+            syncBtn.classList.remove('is-syncing');
+            navigateTo(currentView);
+          });
+        });
+      });
+    }
+
     window.addEventListener('hashchange', function () {
       if (currentView === 'planner') {
         FT.Planner.loadFromHash();
@@ -38,53 +46,55 @@ window.FT = window.FT || {};
       }
     });
 
-    // Render initial view
+    // Scroll-aware header
+    window.addEventListener('scroll', function () {
+      if (window.scrollY > 8) headerEl.classList.add('is-scrolled');
+      else headerEl.classList.remove('is-scrolled');
+    }, { passive: true });
+
     navigateTo('planner');
 
-    // Sync from Google Sheets in background (if configured)
     FT.Storage.syncFromSheets(function (success) {
-      if (success) {
-        // Re-render current view with fresh data
-        navigateTo(currentView);
-      }
+      if (success) navigateTo(currentView);
     });
   }
 
   function navigateTo(viewName) {
     currentView = viewName;
 
-    // Update nav active state
-    document.querySelectorAll('.nav-btn').forEach(function (btn) {
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.view === viewName);
     });
 
-    // Render view
-    switch (viewName) {
-      case 'planner':
-        FT.Planner.render(appContent);
-        break;
-      case 'summary':
-        FT.Summary.resetSelection();
-        FT.Summary.render(appContent);
-        break;
-      case 'settings':
-        FT.Settings.render(appContent);
-        break;
+    var headerTitle = document.getElementById('header-title');
+    var headerSub = document.getElementById('header-subtitle');
+    if (headerTitle) {
+      headerTitle.textContent =
+        viewName === 'planner' ? 'Planner' :
+        viewName === 'summary' ? 'Schedule' :
+        'Settings';
+    }
+    if (headerSub) {
+      headerSub.textContent =
+        viewName === 'planner' ? 'Fairy Tails K9 — weekly slots' :
+        viewName === 'summary' ? 'Daily lineup by time slot' :
+        'Slots, equipment & sync';
     }
 
-    // Scroll to top
+    switch (viewName) {
+      case 'planner': FT.Planner.render(appContent); break;
+      case 'summary': FT.Summary.resetSelection(); FT.Summary.render(appContent); break;
+      case 'settings': FT.Settings.render(appContent); break;
+    }
+
     window.scrollTo(0, 0);
   }
 
-  // Start the app
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
 
-  // Expose for other modules
-  window.FT.App = {
-    navigateTo: navigateTo
-  };
+  window.FT.App = { navigateTo: navigateTo };
 })();
