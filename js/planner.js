@@ -281,7 +281,7 @@ window.FT.Planner = (function () {
 
     dogs.forEach(function (dog, dogIdx) {
       var isExpanded = expandedCards[dog.id];
-      if (isExpanded === undefined) isExpanded = dogIdx < 3;
+      if (isExpanded === undefined) isExpanded = false;
 
       html += '<div class="dog-card' + (isExpanded ? ' expanded' : '') + '" data-dog-id="' + dog.id + '">';
 
