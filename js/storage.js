@@ -569,7 +569,8 @@ window.FT.Storage = (function () {
     for (var i = 0; i < localStorage.length; i++) {
       var key = localStorage.key(i);
       if (key.startsWith('ft_')) {
-        data[key] = read(key);
+        // sheetsUrl is stored as a raw string, not JSON — read() would mangle it to null
+        data[key] = key === KEYS.sheetsUrl ? localStorage.getItem(key) : read(key);
       }
     }
     return JSON.stringify(data, null, 2);
@@ -579,7 +580,11 @@ window.FT.Storage = (function () {
     try {
       var data = JSON.parse(jsonStr);
       Object.keys(data).forEach(function (key) {
-        if (key.startsWith('ft_')) {
+        if (!key.startsWith('ft_')) return;
+        if (key === KEYS.sheetsUrl) {
+          // raw string key; skip nulls from backups made before this was special-cased
+          if (typeof data[key] === 'string') localStorage.setItem(key, data[key]);
+        } else {
           write(key, data[key]);
         }
       });

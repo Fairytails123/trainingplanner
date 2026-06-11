@@ -374,6 +374,8 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
 }
 .day-row--past .day-row__label { color: var(--text-3); }
 .day-row--past .slot-pill { opacity: 0.7; }
+.day-row--past .slot-pill,
+.day-row--past .slot-empty { pointer-events: none; }
 
 /* Slot pill */
 .slot-pill, .slot-empty {
@@ -1036,7 +1038,6 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     display: grid;
     grid-template-columns: 1fr;
   }
-  .fab { display: none; }
 }
 
 /* Hide scrollbars on horizontal day strip */

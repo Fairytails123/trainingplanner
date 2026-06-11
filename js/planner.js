@@ -351,12 +351,14 @@ window.FT.Planner = (function () {
       });
     });
 
-    var addBtn = container.querySelector('#fab-add-dog') || container.querySelector('#empty-add-dog');
-    if (addBtn) {
-      addBtn.addEventListener('click', function () {
-        openDogModal(null, function () { render(container); });
-      });
-    }
+    ['#fab-add-dog', '#empty-add-dog'].forEach(function (sel) {
+      var addBtn = container.querySelector(sel);
+      if (addBtn) {
+        addBtn.addEventListener('click', function () {
+          openDogModal(null, function () { render(container); });
+        });
+      }
+    });
 
     container.querySelectorAll('.dog-card__header').forEach(function (header) {
       header.addEventListener('click', function (e) {
