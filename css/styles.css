@@ -335,6 +335,14 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
   border-radius: var(--radius-pill);
   letter-spacing: 0.02em;
   white-space: nowrap;
+  position: relative;
+}
+/* invisible hit-area extension: keeps the small pill visual but gives the
+   tap-to-edit badge the 44px minimum target without inflating the header */
+.dog-card__week-badge::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
 }
 .dog-card__menu {
   appearance: none; border: 0; background: transparent;
@@ -527,7 +535,7 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
   bottom: calc(var(--tabbar-h) + 16px);
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand-bright), var(--brand));
+  background: var(--brand); /* solid: keeps the + glyph AA in both modes */
   color: var(--on-brand);
   border: 0;
   font-size: 28px;
@@ -584,6 +592,8 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
   z-index: 100;
 }
 .bottom-sheet-backdrop.visible { opacity: 1; }
+/* while fading out (GSAP close path) the backdrop must not eat taps */
+.bottom-sheet-backdrop:not(.visible) { pointer-events: none; }
 
 .bottom-sheet {
   position: fixed;
@@ -1095,8 +1105,10 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 .brand-logo {
   width: 40px; height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--brand-bright), var(--brand));
-  color: #fff;
+  /* fixed deep end-stop: in dark mode --brand remaps to #31add3 and a
+     token-based gradient would collapse to a flat tile */
+  background: linear-gradient(135deg, var(--brand-bright), #0077B6);
+  color: var(--on-brand);
   display: inline-flex; align-items: center; justify-content: center;
   box-shadow: 0 4px 12px rgba(49,173,211,0.35);
   flex: 0 0 auto;
@@ -1204,7 +1216,8 @@ button.snapshot__tile:active { transform: scale(0.96); }
 }
 .chip-clear {
   border: 0; background: transparent;
-  color: var(--brand); font-weight: 600; font-size: 13px;
+  color: var(--brand-dim); /* sits on --bg, where --brand is 4.36:1 — just under AA */
+  font-weight: 600; font-size: 13px;
   padding: 10px 8px; min-height: 44px;
 }
 .dog-card.filtered-out { display: none; }
@@ -1232,7 +1245,7 @@ button.snapshot__tile:active { transform: scale(0.96); }
 .status-badge--ok { background: var(--ok-bg); color: var(--ok-fg); }
 .status-badge--none { background: transparent; color: var(--text-3); border: 1px dashed var(--separator-strong); }
 .status-badge--conflict { background: var(--conflict-bg); color: var(--conflict-fg); }
-.status-badge--info { background: var(--brand-tint); color: var(--brand); }
+.status-badge--info { background: var(--brand-tint); color: var(--brand-dim); } /* brand-dim: AA on the tint in both modes */
 .glance-extra {
   font-size: 11px; font-weight: 700; color: var(--text-3);
   background: var(--bg-section-header);

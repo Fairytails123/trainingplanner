@@ -63,9 +63,12 @@ window.FT.Planner = (function () {
         bottomSheetEl.classList.add('gsap-anim');
         bottomSheetEl.classList.add('open');
         var centred = window.matchMedia('(min-width: 600px)').matches;
+        // x:0 is required: GSAP parses the CSS translate(-50%) matrix as a px
+        // offset, and without an explicit x it would compose with xPercent
+        // and double the centring shift on >=600px viewports
         window.gsap.fromTo(bottomSheetEl,
-          { y: window.innerHeight, xPercent: centred ? -50 : 0 },
-          { y: 0, xPercent: centred ? -50 : 0, duration: 0.5, ease: 'power4.out' });
+          { y: window.innerHeight, x: 0, xPercent: centred ? -50 : 0 },
+          { y: 0, x: 0, xPercent: centred ? -50 : 0, duration: 0.5, ease: 'power4.out' });
       } else {
         bottomSheetEl.classList.add('open');
       }
@@ -86,7 +89,12 @@ window.FT.Planner = (function () {
       return;
     }
     if (window.gsap) {
-      if (backdrop) backdrop.classList.remove('visible');
+      // the dying sheet/backdrop must not eat taps during the slide-out
+      sheet.style.pointerEvents = 'none';
+      if (backdrop) {
+        backdrop.style.pointerEvents = 'none';
+        backdrop.classList.remove('visible');
+      }
       window.gsap.killTweensOf(sheet); // a close mid-open must not fight the open tween
       window.gsap.to(sheet, {
         y: window.innerHeight, duration: 0.32, ease: 'power3.in',
@@ -256,12 +264,15 @@ window.FT.Planner = (function () {
         '<button class="btn btn-primary btn--full" id="notes-sheet-save">Save notes</button>' +
         '</div>'
     });
-    var saveBtn = document.getElementById('notes-sheet-save');
+    // query within THIS sheet — a previous sheet may still be animating out
+    // with the same element ids, and getElementById would grab the dying one
+    var sheetEl = bottomSheetEl;
+    var saveBtn = sheetEl ? sheetEl.querySelector('#notes-sheet-save') : null;
     if (saveBtn) {
       saveBtn.addEventListener('click', function () {
         // re-read the dog so only notes change — a sync may have updated other fields
         var fresh = FT.Storage.getDog(dogId) || dog;
-        fresh.notes = document.getElementById('notes-sheet-input').value.trim();
+        fresh.notes = sheetEl.querySelector('#notes-sheet-input').value.trim();
         FT.Storage.saveDog(fresh);
         closeBottomSheet();
         if (FT.Settings && FT.Settings.toast) FT.Settings.toast('Notes saved');
@@ -287,23 +298,26 @@ window.FT.Planner = (function () {
       var day = weekSlots[dateStr] || {};
       var a = day[dog.id];
       if (!a || !a.slotId) return;
-      info.assignedDays++;
       var slot = slotMap[a.slotId];
-      if (slot && slot.period === 'am') info.am = true;
-      if (slot && slot.period === 'pm') info.pm = true;
+      // an assignment whose slot id no longer exists renders as "— No slot —",
+      // so it must count as unassigned here too or tiles and cards disagree
+      if (!slot) return;
+      info.assignedDays++;
+      if (slot.period === 'am') info.am = true;
+      if (slot.period === 'pm') info.pm = true;
       var conflicted = Object.keys(day).some(function (otherId) {
         return otherId !== dog.id && activeIds[otherId] && day[otherId].slotId === a.slotId;
       });
       if (conflicted) info.conflict = true;
       if (isToday) {
-        info.todaySlot = slot || null;
+        info.todaySlot = slot;
         info.todayConflict = conflicted;
       }
     });
     return info;
   }
 
-  function computeSnapshot(dogs, infoById, conflictCount) {
+  function computeSnapshot(dogs, infoById, conflictCount, validKitIds) {
     var snap = { total: dogs.length, today: 0, unassigned: 0,
                  conflicts: conflictCount, kit: 0, todayInWeek: false };
     var kitIds = {};
@@ -315,7 +329,11 @@ window.FT.Planner = (function () {
       if (info.assignedDays === 0) snap.unassigned++;
       var training = info.todayInWeek ? !!info.todaySlot : info.assignedDays > 0;
       if (training) {
-        (dog.equipment || []).forEach(function (id) { kitIds[id] = true; });
+        (dog.equipment || []).forEach(function (id) {
+          // skip kit ids deleted from the config — they render no tag anywhere
+          if (validKitIds && !validKitIds[id]) return;
+          kitIds[id] = true;
+        });
       }
     });
     snap.kit = Object.keys(kitIds).length;
@@ -361,7 +379,9 @@ window.FT.Planner = (function () {
     dogs.forEach(function (d) { activeIds[d.id] = true; });
     var infoById = {};
     dogs.forEach(function (d) { infoById[d.id] = getDogWeekInfo(d, dates, weekSlots, slotMap, activeIds); });
-    var snap = computeSnapshot(dogs, infoById, conflictCount);
+    var validKitIds = {};
+    FT.Storage.getEquipment().forEach(function (eq) { validKitIds[eq.id] = true; });
+    var snap = computeSnapshot(dogs, infoById, conflictCount, validKitIds);
 
     var html = '';
 
@@ -534,7 +554,12 @@ window.FT.Planner = (function () {
   function toggleCard(card) {
     var dogId = card.dataset.dogId;
     var body = card.querySelector('.dog-card__body');
-    var wasExpanded = card.classList.contains('expanded');
+    // expandedCards is the source of truth: during a GSAP collapse the
+    // 'expanded' class lingers until onComplete, so reading classList would
+    // swallow a quick re-tap as a second collapse
+    var wasExpanded = (dogId in expandedCards)
+      ? !!expandedCards[dogId]
+      : card.classList.contains('expanded');
     expandedCards[dogId] = !wasExpanded;
     if (window.gsap && body) {
       window.gsap.killTweensOf(body); // rapid re-taps must not stack competing tweens
@@ -745,6 +770,8 @@ window.FT.Planner = (function () {
       container.addEventListener('touchend', function (e) {
         // the container also hosts Schedule/Settings — only swipe on the planner
         if (!container.querySelector('.segmented')) return;
+        // horizontal scrollers and the search field must not trigger week swipes
+        if (e.target.closest('.snapshot, .filter-chips, .summary-day-tabs, .search-field')) return;
         var endX = e.changedTouches[0].clientX;
         var endY = e.changedTouches[0].clientY;
         var diffX = endX - startX;

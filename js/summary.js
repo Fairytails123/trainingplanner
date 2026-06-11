@@ -27,15 +27,18 @@ window.FT.Summary = (function () {
     var dateStr = FT.Calendar.formatDate(selectedDate, 'YYYY-MM-DD');
     var assignments = FT.Storage.getSlots(dateStr);
 
-    // Day stats + kit-prep groups for the selected day (active dogs only)
+    // Day stats + kit-prep groups for the selected day (active dogs on
+    // slots that still exist — stale ids render nowhere, so they must not count)
     var dogById = {};
     dogs.forEach(function (d) { dogById[d.id] = d; });
+    var slotById = {};
+    timeSlots.forEach(function (s) { slotById[s.id] = s; });
     var equipment = FT.Storage.getEquipment();
     var assignedDayDogs = [];
     var slotCounts = {};
     Object.keys(assignments).forEach(function (dogId) {
       var a = assignments[dogId];
-      if (!a.slotId || !dogById[dogId]) return;
+      if (!a.slotId || !dogById[dogId] || !slotById[a.slotId]) return;
       assignedDayDogs.push(dogById[dogId]);
       slotCounts[a.slotId] = (slotCounts[a.slotId] || 0) + 1;
     });
@@ -49,6 +52,8 @@ window.FT.Summary = (function () {
         (prepGroups[eqId] = prepGroups[eqId] || []).push(dog.name);
       });
     });
+    // rows and the tile must agree: both use only kit ids still in the config
+    var prepEq = equipment.filter(function (eq) { return prepGroups[eq.id]; });
 
     var html = '';
 
@@ -84,12 +89,11 @@ window.FT.Summary = (function () {
         '<div class="snapshot__tile snapshot__tile--ok"><span class="snapshot__num">' + assignedDayDogs.length + '</span><span class="snapshot__lbl">Training</span></div>' +
         '<div class="snapshot__tile' + (offCount > 0 ? ' snapshot__tile--warn' : '') + '"><span class="snapshot__num">' + offCount + '</span><span class="snapshot__lbl">Off</span></div>' +
         '<div class="snapshot__tile' + (dayConflicts > 0 ? ' snapshot__tile--conflict' : '') + '"><span class="snapshot__num">' + dayConflicts + '</span><span class="snapshot__lbl">Conflicts</span></div>' +
-        '<div class="snapshot__tile snapshot__tile--brand"><span class="snapshot__num">' + Object.keys(prepGroups).length + '</span><span class="snapshot__lbl">Kit items</span></div>' +
+        '<div class="snapshot__tile snapshot__tile--brand"><span class="snapshot__num">' + prepEq.length + '</span><span class="snapshot__lbl">Kit items</span></div>' +
       '</div>';
 
       // Kit to prepare — grouped by equipment for the selected day
       html += '<div class="prep-card"><div class="prep-card__title">Kit to prepare</div>';
-      var prepEq = equipment.filter(function (eq) { return prepGroups[eq.id]; });
       if (prepEq.length === 0) {
         html += '<div class="prep-card__none">' +
           (assignedDayDogs.length === 0 ? 'No dogs scheduled this day.' : 'No kit needed for the scheduled dogs.') +
