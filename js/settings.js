@@ -72,9 +72,9 @@ window.FT.Settings = (function () {
     '</div>';
     html += '</div>';
 
-    // Data
+    // Data Backup
     html += '<div class="settings-section">';
-    html += '<div class="settings-section__title">Data</div>';
+    html += '<div class="settings-section__title">Data Backup</div>';
     html += '<div class="settings-section__body">';
     html += '<div class="settings-link-row" id="export-json-row">' +
       '<div><div class="settings-link-row__label">Export all data (JSON)</div>' +
@@ -86,7 +86,9 @@ window.FT.Settings = (function () {
       '<div class="settings-link-row__sub">Restore from a backup file</div></div>' +
       '<span class="settings-link-row__chev">›</span>' +
     '</div>';
-    html += '</div></div>';
+    html += '</div>';
+    html += '<div class="settings-section__hint">Backups include dogs, slot assignments, time slots and equipment.</div>';
+    html += '</div>';
 
     container.innerHTML = html;
     wireUpEvents(container);

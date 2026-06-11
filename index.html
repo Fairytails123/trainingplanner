@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#FF6F00">
+  <meta name="theme-color" content="#31add3">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="FT Planner">
@@ -16,9 +16,15 @@
 <body>
   <header class="app-header">
     <div class="header-top">
-      <div>
-        <h1 class="header-title" id="header-title">Planner</h1>
-        <span class="header-subtitle" id="header-subtitle">Fairy Tails K9 — weekly slots</span>
+      <div class="header-brand">
+        <!-- Placeholder: swap this paw mark for the real Fairy Tails logo when supplied -->
+        <div class="brand-logo" id="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6.2" cy="9" r="2.1"/><circle cx="10.6" cy="6.2" r="2.2"/><circle cx="15.4" cy="6.2" r="2.2"/><circle cx="19.8" cy="9" r="2.1"/><path d="M13 10.6c-3.4 0-6.3 2.9-6.3 5.7 0 1.8 1.4 2.9 3.2 2.9 1.2 0 2-.5 3.1-.5s1.9.5 3.1.5c1.8 0 3.2-1.1 3.2-2.9 0-2.8-2.9-5.7-6.3-5.7z"/></svg>
+        </div>
+        <div>
+          <h1 class="header-title" id="header-title">Planner</h1>
+          <span class="header-subtitle" id="header-subtitle">Fairy Tails K9 — weekly slots</span>
+        </div>
       </div>
       <div class="header-actions">
         <button class="header-icon-btn" id="header-sync-btn" aria-label="Sync">
@@ -54,6 +60,8 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+  <!-- GSAP core only — bottom-sheet and card-expand transitions; everything degrades to CSS if it fails to load -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
 
   <script src="js/storage.js"></script>
   <script src="js/calendar.js"></script>

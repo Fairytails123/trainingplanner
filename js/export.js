@@ -101,7 +101,7 @@ window.FT.Export = (function () {
         lineColor: [200, 200, 200]
       },
       headStyles: {
-        fillColor: [255, 111, 0],
+        fillColor: [0, 119, 182],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         fontSize: 8

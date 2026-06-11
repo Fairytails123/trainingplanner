@@ -1,4 +1,8 @@
-const CACHE_NAME = 'ft-planner-v5';
+const CACHE_NAME = 'ft-planner-v6';
+// GSAP core (CDN) — precached so bottom-sheet/card animations work offline.
+// Cached non-fatally: if the CDN is unreachable at install time the app
+// still installs and the UI falls back to CSS transitions.
+const GSAP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js';
 const ASSETS = [
   './',
   './index.html',
@@ -20,7 +24,7 @@ const ASSETS = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ASSETS))
+      .then(cache => cache.addAll(ASSETS).then(() => cache.add(GSAP_URL).catch(() => {})))
       .then(() => self.skipWaiting())
   );
 });
