@@ -88,26 +88,29 @@ window.FT.Planner = (function () {
       '<div class="modal__body">' + (options.body || '') + '</div>' +
       (options.footer ? '<div class="modal__footer">' + options.footer + '</div>' : '');
 
+    // every close path must also drop the document-level Escape listener,
+    // or one orphaned handler accumulates per modal open on touch devices
+    function closeModal() {
+      document.removeEventListener('keydown', escHandler);
+      backdrop.remove();
+    }
+    var escHandler = function (e) {
+      if (e.key === 'Escape') closeModal();
+    };
+
     backdrop.appendChild(modal);
     modal.addEventListener('click', function (e) { e.stopPropagation(); });
-    backdrop.addEventListener('click', function () { backdrop.remove(); });
-    modal.querySelector('.modal__close').addEventListener('click', function () { backdrop.remove(); });
-
-    var escHandler = function (e) {
-      if (e.key === 'Escape') {
-        backdrop.remove();
-        document.removeEventListener('keydown', escHandler);
-      }
-    };
+    backdrop.addEventListener('click', closeModal);
+    modal.querySelector('.modal__close').addEventListener('click', closeModal);
     document.addEventListener('keydown', escHandler);
 
     modalRoot.appendChild(backdrop);
 
     if (options.onMount) {
-      options.onMount(modal, function () { backdrop.remove(); });
+      options.onMount(modal, closeModal);
     }
 
-    return { close: function () { backdrop.remove(); } };
+    return { close: closeModal };
   }
 
   // ---- Add/Edit Dog Modal ----
@@ -250,7 +253,7 @@ window.FT.Planner = (function () {
     if (conflictCount > 0) {
       html += '<div class="conflict-banner">' +
         '<span class="dot"></span>' +
-        conflictCount + ' booking conflict' + (conflictCount > 1 ? 's' : '') + ' this week — tap a red pill to resolve.' +
+        conflictCount + ' booking conflict' + (conflictCount > 1 ? 's' : '') + ' this week — open a dog marked with a red dot to resolve.' +
       '</div>';
     }
 
@@ -283,12 +286,20 @@ window.FT.Planner = (function () {
       var isExpanded = expandedCards[dog.id];
       if (isExpanded === undefined) isExpanded = false;
 
+      // cards default collapsed, so conflicts need a marker visible on the header
+      var dogHasConflict = dates.some(function (date) {
+        var dateStr = FT.Calendar.formatDate(date, 'YYYY-MM-DD');
+        var a = weekSlots[dateStr] && weekSlots[dateStr][dog.id];
+        return !!(a && a.slotId && FT.Slots.getConflicts(dateStr, a.slotId, dog.id).length);
+      });
+
       html += '<div class="dog-card' + (isExpanded ? ' expanded' : '') + '" data-dog-id="' + dog.id + '">';
 
       var wkNum = dog.weekNumber != null ? dog.weekNumber : '';
       html += '<div class="dog-card__header">' +
         '<span class="dog-card__chevron">›</span>' +
         '<span class="dog-card__name">' +
+          (dogHasConflict ? '<span class="dog-card__conflict-dot" title="Booking conflict this week"></span>' : '') +
           '<span class="dog-card__name-text">' + escapeHtml(dog.name) + '</span>' +
           (dog.breed ? '<span class="dog-card__breed">· ' + escapeHtml(dog.breed) + '</span>' : '') +
         '</span>' +
@@ -430,24 +441,31 @@ window.FT.Planner = (function () {
       });
     });
 
-    // Swipe navigation
-    var startX = 0, startY = 0;
-    container.addEventListener('touchstart', function (e) {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-    }, { passive: true });
+    // Swipe navigation — wire once: render() re-runs wireUpEvents on every
+    // interaction, and innerHTML replacement does not remove container-level
+    // listeners, so re-adding here would stack one handler pair per render
+    if (!container.ftSwipeWired) {
+      container.ftSwipeWired = true;
+      var startX = 0, startY = 0;
+      container.addEventListener('touchstart', function (e) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      }, { passive: true });
 
-    container.addEventListener('touchend', function (e) {
-      var endX = e.changedTouches[0].clientX;
-      var endY = e.changedTouches[0].clientY;
-      var diffX = endX - startX;
-      var diffY = endY - startY;
-      if (Math.abs(diffX) > 80 && Math.abs(diffX) > Math.abs(diffY) * 2) {
-        currentMonday = FT.Calendar.navigateWeek(currentMonday, diffX < 0 ? 1 : -1);
-        updateHash();
-        render(container);
-      }
-    }, { passive: true });
+      container.addEventListener('touchend', function (e) {
+        // the container also hosts Schedule/Settings — only swipe on the planner
+        if (!container.querySelector('.segmented')) return;
+        var endX = e.changedTouches[0].clientX;
+        var endY = e.changedTouches[0].clientY;
+        var diffX = endX - startX;
+        var diffY = endY - startY;
+        if (Math.abs(diffX) > 80 && Math.abs(diffX) > Math.abs(diffY) * 2) {
+          currentMonday = FT.Calendar.navigateWeek(currentMonday, diffX < 0 ? 1 : -1);
+          updateHash();
+          render(container);
+        }
+      }, { passive: true });
+    }
   }
 
   function updateHash() {

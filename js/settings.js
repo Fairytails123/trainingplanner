@@ -101,8 +101,9 @@ window.FT.Settings = (function () {
         if (statusEl) statusEl.textContent = 'Syncing…';
         FT.Storage.pushAllToSheets(function () {
           FT.Storage.syncFromSheets(function (ok) {
-            if (statusEl) statusEl.textContent = ok ? '✓' : '!';
             showToast(ok ? 'Synced with Google Sheets' : 'Sync failed');
+            if (ok) { render(container); return; } // re-render so rows show the pulled config
+            if (statusEl) statusEl.textContent = '!';
             setTimeout(function () { if (statusEl) statusEl.textContent = '›'; }, 1500);
           });
         });
@@ -114,7 +115,8 @@ window.FT.Settings = (function () {
       saveUrlBtn.addEventListener('click', function () {
         var url = container.querySelector('#sheets-url').value.trim();
         FT.Storage.setSheetsUrl(url);
-        showToast('Sheets URL saved');
+        // an empty value falls back to the built-in endpoint — don't claim it was saved
+        showToast(url ? 'Sheets URL saved' : 'URL cleared — sync uses the built-in endpoint');
       });
     }
 
@@ -265,5 +267,5 @@ window.FT.Settings = (function () {
     });
   }
 
-  return { render: render };
+  return { render: render, toast: showToast };
 })();

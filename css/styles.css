@@ -147,6 +147,9 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
 }
 .header-icon-btn:active { background: var(--separator); }
 .header-icon-btn .ico { width: 20px; height: 20px; display: inline-block; }
+.header-icon-btn.is-syncing { opacity: 0.5; pointer-events: none; }
+.header-icon-btn.is-syncing .ico { animation: ft-spin 0.9s linear infinite; }
+@keyframes ft-spin { to { transform: rotate(360deg); } }
 
 /* iOS-style large title shrinks when scrolled (visual only) */
 @media (min-width: 0) {
@@ -286,6 +289,12 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
   display: flex; align-items: baseline; gap: 6px; min-width: 0;
 }
 .dog-card__name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dog-card__conflict-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red);
+  flex: 0 0 auto;
+  align-self: center;
+}
 .dog-card__breed {
   font-size: 13px; font-weight: 500; color: var(--text-3);
   letter-spacing: 0;

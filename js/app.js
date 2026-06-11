@@ -29,11 +29,13 @@ window.FT = window.FT || {};
     var syncBtn = document.getElementById('header-sync-btn');
     if (syncBtn) {
       syncBtn.addEventListener('click', function () {
+        if (syncBtn.classList.contains('is-syncing')) return;
         syncBtn.classList.add('is-syncing');
         FT.Storage.pushAllToSheets(function () {
-          FT.Storage.syncFromSheets(function () {
+          FT.Storage.syncFromSheets(function (ok) {
             syncBtn.classList.remove('is-syncing');
-            navigateTo(currentView);
+            FT.Settings.toast(ok ? 'Synced with Google Sheets' : 'Sync failed');
+            if (ok) navigateTo(currentView);
           });
         });
       });
