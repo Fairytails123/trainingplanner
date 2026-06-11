@@ -32,7 +32,7 @@ window.FT.Planner = (function () {
     bottomSheetEl.className = 'bottom-sheet';
     bottomSheetEl.innerHTML =
       '<div class="bottom-sheet__handle"></div>' +
-      '<div class="bottom-sheet__title">' + (options.title || '') + '</div>' +
+      '<div class="bottom-sheet__title">' + escapeHtml(options.title || '') + '</div>' +
       '<div class="bottom-sheet__content">' + (options.content || '') + '</div>';
 
     bottomSheetCallbacks = {

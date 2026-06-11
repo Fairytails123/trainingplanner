@@ -60,8 +60,8 @@ window.FT.Settings = (function () {
     equipment.forEach(function (eq, i) {
       html += '<div class="settings-row" data-equip-index="' + i + '">' +
         '<input type="text" class="form-input" style="flex:2;" value="' + escapeAttr(eq.label) + '" data-field="label" placeholder="Muzzle">' +
-        '<input type="color" class="settings-row__colour" value="' + eq.colour + '" data-field="colour" title="Background">' +
-        '<input type="color" class="settings-row__colour" value="' + eq.textColour + '" data-field="textColour" title="Text">' +
+        '<input type="color" class="settings-row__colour" value="' + escapeAttr(eq.colour) + '" data-field="colour" title="Background">' +
+        '<input type="color" class="settings-row__colour" value="' + escapeAttr(eq.textColour) + '" data-field="textColour" title="Text">' +
         '<button class="settings-row__delete" data-delete-equip="' + i + '" aria-label="Delete">×</button>' +
       '</div>';
     });

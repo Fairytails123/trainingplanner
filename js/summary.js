@@ -74,7 +74,7 @@ window.FT.Summary = (function () {
         html += '<div class="summary-slot-group">';
         html += '<div class="summary-slot-heading ' + slot.period +
           (hasConflict ? ' conflict' : '') + '">' +
-          '<span>' + slot.label + '</span>' +
+          '<span>' + escapeHtml(slot.label) + '</span>' +
           '<span class="slot-count">' + assignedDogs.length + ' dog' + (assignedDogs.length !== 1 ? 's' : '') + '</span>' +
           (hasConflict ? '<span class="conflict-tag">Conflict</span>' : '') +
         '</div>';

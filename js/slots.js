@@ -83,8 +83,8 @@ window.FT.Slots = (function () {
            (hasConflict ? ' has-conflict' : '') +
            '" data-date="' + dateStr +
            '" data-dog="' + dogId +
-           '"' + (hasConflict ? ' title="' + conflictTitle + '"' : '') +
-           '>' + slot.shortLabel + '</span>';
+           '"' + (hasConflict ? ' title="' + FT.Util.escapeHtml(conflictTitle) + '"' : '') +
+           '>' + FT.Util.escapeHtml(slot.shortLabel) + '</span>';
   }
 
   /**
@@ -118,12 +118,12 @@ window.FT.Slots = (function () {
       html += '<div class="bottom-sheet__item' + (isSelected ? ' selected' : '') +
               '" data-slot-id="' + slot.id + '">' +
               '<span class="bottom-sheet__item-pill ' + slot.period + '">' +
-              slot.shortLabel + '</span>' +
-              '<span class="bottom-sheet__item-label">' + slot.label + '</span>';
+              FT.Util.escapeHtml(slot.shortLabel) + '</span>' +
+              '<span class="bottom-sheet__item-label">' + FT.Util.escapeHtml(slot.label) + '</span>';
 
       if (hasConflict) {
         html += '<span class="bottom-sheet__conflict-warning">' +
-                conflicts.map(function (d) { return d.name; }).join(', ') +
+                FT.Util.escapeHtml(conflicts.map(function (d) { return d.name; }).join(', ')) +
                 '</span>';
       }
 

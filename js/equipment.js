@@ -21,8 +21,8 @@ window.FT.Equipment = (function () {
     selectedIds.forEach(function (id) {
       var eq = allEquipment.find(function (e) { return e.id === id; });
       if (eq) {
-        html += '<span class="equipment-tag" style="background:' + eq.colour +
-                ';color:' + eq.textColour + ';">' + eq.label + '</span>';
+        html += '<span class="equipment-tag" style="background:' + FT.Util.escapeHtml(eq.colour) +
+                ';color:' + FT.Util.escapeHtml(eq.textColour) + ';">' + FT.Util.escapeHtml(eq.label) + '</span>';
       }
     });
 
@@ -44,8 +44,8 @@ window.FT.Equipment = (function () {
               '" data-equipment-id="' + eq.id + '">' +
               '<span class="equipment-picker__item ' +
               (isSelected ? 'equipment-picker__item--selected' : 'equipment-picker__item--unselected') +
-              '" style="background:' + (isSelected ? eq.colour : 'transparent') +
-              ';color:' + eq.textColour + ';">' + eq.label + '</span>' +
+              '" style="background:' + (isSelected ? FT.Util.escapeHtml(eq.colour) : 'transparent') +
+              ';color:' + FT.Util.escapeHtml(eq.textColour) + ';">' + FT.Util.escapeHtml(eq.label) + '</span>' +
               '<span class="bottom-sheet__item-check">' + (isSelected ? '✓' : '') + '</span>' +
               '</div>';
     });
@@ -65,8 +65,8 @@ window.FT.Equipment = (function () {
       html += '<div class="equipment-picker__item ' +
               (isSelected ? 'equipment-picker__item--selected' : 'equipment-picker__item--unselected') +
               '" data-equipment-id="' + eq.id +
-              '" style="background:' + (isSelected ? eq.colour : 'transparent') +
-              ';color:' + eq.textColour + ';">' + eq.label + '</div>';
+              '" style="background:' + (isSelected ? FT.Util.escapeHtml(eq.colour) : 'transparent') +
+              ';color:' + FT.Util.escapeHtml(eq.textColour) + ';">' + FT.Util.escapeHtml(eq.label) + '</div>';
     });
 
     html += '</div>';

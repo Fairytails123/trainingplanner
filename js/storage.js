@@ -5,6 +5,14 @@
 
 window.FT = window.FT || {};
 
+// Shared HTML/attribute escaper — storage.js loads first, so every module can use it
+window.FT.Util = window.FT.Util || {};
+window.FT.Util.escapeHtml = function (str) {
+  return String(str || '').replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+};
+
 window.FT.Storage = (function () {
   'use strict';
 
