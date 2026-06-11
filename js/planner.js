@@ -87,6 +87,7 @@ window.FT.Planner = (function () {
     }
     if (window.gsap) {
       if (backdrop) backdrop.classList.remove('visible');
+      window.gsap.killTweensOf(sheet); // a close mid-open must not fight the open tween
       window.gsap.to(sheet, {
         y: window.innerHeight, duration: 0.32, ease: 'power3.in',
         onComplete: function () { sheet.remove(); if (backdrop) backdrop.remove(); }
@@ -536,6 +537,7 @@ window.FT.Planner = (function () {
     var wasExpanded = card.classList.contains('expanded');
     expandedCards[dogId] = !wasExpanded;
     if (window.gsap && body) {
+      window.gsap.killTweensOf(body); // rapid re-taps must not stack competing tweens
       if (wasExpanded) {
         window.gsap.to(body, {
           height: 0, opacity: 0, duration: 0.28, ease: 'power2.inOut',
@@ -546,6 +548,7 @@ window.FT.Planner = (function () {
         });
       } else {
         card.classList.add('expanded');
+        window.gsap.set(body, { clearProps: 'all' }); // drop any residue from a killed collapse tween
         window.gsap.from(body, { height: 0, opacity: 0, duration: 0.32, ease: 'power2.out', clearProps: 'all' });
       }
     } else {
