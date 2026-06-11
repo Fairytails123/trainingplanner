@@ -33,7 +33,13 @@ window.FT.Slots = (function () {
    */
   function countConflicts(dates) {
     var count = 0;
-    var timeSlots = FT.Storage.getTimeSlots();
+    // count only active dogs on slots that still exist — archived dogs'
+    // leftover assignments and deleted slot ids render nowhere, so counting
+    // them here would contradict every visible conflict marker
+    var activeIds = {};
+    FT.Storage.getActiveDogs().forEach(function (d) { activeIds[d.id] = true; });
+    var validSlotIds = {};
+    FT.Storage.getTimeSlots().forEach(function (s) { validSlotIds[s.id] = true; });
 
     dates.forEach(function (date) {
       var dateStr = FT.Calendar.formatDate(date, 'YYYY-MM-DD');
@@ -41,8 +47,9 @@ window.FT.Slots = (function () {
       var slotCounts = {};
 
       Object.keys(assignments).forEach(function (dogId) {
+        if (!activeIds[dogId]) return;
         var sid = assignments[dogId].slotId;
-        if (sid) {
+        if (sid && validSlotIds[sid]) {
           slotCounts[sid] = (slotCounts[sid] || 0) + 1;
         }
       });

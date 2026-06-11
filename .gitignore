@@ -1,0 +1,4 @@
+# Local working artefacts — never deploy these
+.claude/
+# Stale local copy of the app (OneDrive accident, April 2026) — do not commit
+/Dog training ops/
