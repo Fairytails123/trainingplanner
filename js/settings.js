@@ -72,6 +72,32 @@ window.FT.Settings = (function () {
     '</div>';
     html += '</div>';
 
+    // Archived dogs
+    var archivedDogs = FT.Storage.getArchivedDogs();
+    html += '<div class="settings-section">';
+    html += '<div class="settings-section__title">Archived dogs</div>';
+    html += '<div class="settings-section__body" id="settings-archived">';
+    if (archivedDogs.length === 0) {
+      html += '<div class="settings-row" style="padding:12px;color:var(--text-3);">No archived dogs.</div>';
+    } else {
+      archivedDogs.forEach(function (dog) {
+        var sub = [dog.breed, dog.ownerName].filter(Boolean).map(escapeHtml).join(' · ');
+        html += '<div class="settings-archived-row" data-dog-id="' + escapeAttr(dog.id) + '">' +
+          '<div class="settings-archived-row__info">' +
+            '<div class="settings-archived-row__name">' + escapeHtml(dog.name || 'Unnamed') + '</div>' +
+            (sub ? '<div class="settings-archived-row__sub">' + sub + '</div>' : '') +
+          '</div>' +
+          '<div class="settings-archived-row__actions">' +
+            '<button class="btn btn-secondary btn-sm" data-restore-dog="' + escapeAttr(dog.id) + '">Restore</button>' +
+            '<button class="btn btn-danger btn-sm" data-delete-dog="' + escapeAttr(dog.id) + '">Delete</button>' +
+          '</div>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+    html += '<div class="settings-section__hint">Restore brings a dog back to the planner. Delete is permanent — it removes the dog everywhere, including the display, and it will not be restored by syncing.</div>';
+    html += '</div>';
+
     // Data Backup
     html += '<div class="settings-section">';
     html += '<div class="settings-section__title">Data Backup</div>';
@@ -206,6 +232,28 @@ window.FT.Settings = (function () {
       });
     }
 
+    // Archived dogs — restore / permanent delete
+    container.querySelectorAll('[data-restore-dog]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = this.getAttribute('data-restore-dog');
+        var dog = FT.Storage.getDog(id);
+        FT.Storage.restoreDog(id);
+        showToast((dog && dog.name ? dog.name : 'Dog') + ' restored');
+        render(container);
+      });
+    });
+    container.querySelectorAll('[data-delete-dog]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = this.getAttribute('data-delete-dog');
+        var dog = FT.Storage.getDog(id);
+        var name = dog && dog.name ? dog.name : 'this dog';
+        if (!confirm('Permanently delete ' + name + '?\n\nThis cannot be undone. The dog is removed from every device and the display, and will not come back when syncing.')) return;
+        FT.Storage.deleteDog(id);
+        showToast(name + ' deleted');
+        render(container);
+      });
+    });
+
     // Export JSON
     var exportRow = container.querySelector('#export-json-row');
     if (exportRow) {
@@ -268,6 +316,9 @@ window.FT.Settings = (function () {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+
+  // Shared escaper (defined in storage.js, which loads first); fall back defensively.
+  var escapeHtml = (FT.Util && FT.Util.escapeHtml) || escapeAttr;
 
   return { render: render, toast: showToast };
 })();

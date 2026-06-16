@@ -1022,6 +1022,27 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .settings-row__delete:active { background: rgba(255,59,48,0.1); }
+.settings-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--separator);
+}
+.settings-archived-row:last-child { border-bottom: 0; }
+.settings-archived-row__info { flex: 1; min-width: 0; }
+.settings-archived-row__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.settings-archived-row__sub {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.settings-archived-row__actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .settings-actions {
   display: flex; gap: 8px;
   padding: 10px 4px 0;

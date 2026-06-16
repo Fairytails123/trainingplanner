@@ -20,6 +20,9 @@
  *    Tab: Config_Equipment
  *    Headers: id | label | colour | textColour
  *
+ *    Tab: Deletions  (auto-created on first delete — no manual setup needed)
+ *    Headers: id | deletedAt
+ *
  * 3. Go to Extensions → Apps Script
  * 4. Delete any default code and paste this entire file
  * 5. Click Deploy → New deployment
@@ -68,6 +71,9 @@ function doPost(e) {
         break;
       case 'archiveDog':
         result = handleArchiveDog(body.data);
+        break;
+      case 'deleteDog':
+        result = handleDeleteDog(body.data);
         break;
       case 'setSlot':
         result = handleSetSlot(body.data);
@@ -167,6 +173,10 @@ function handleGetAll() {
   var timeSlots = slotsSheet ? sheetToObjects(slotsSheet) : [];
   var equipment = equipSheet ? sheetToObjects(equipSheet) : [];
 
+  // Tombstones: ids of dogs that were permanently deleted. Returned so every
+  // client (and stale device) learns the deletion and never resurrects the dog.
+  var deletedIds = getDeletedIds();
+
   // Parse equipment arrays back from comma-separated strings
   dogs.forEach(function(dog) {
     if (dog.equipment && typeof dog.equipment === 'string' && dog.equipment !== '') {
@@ -195,13 +205,21 @@ function handleGetAll() {
     dogs: dogs,
     slotsByDate: slotsByDate,
     timeSlots: timeSlots,
-    equipment: equipment
+    equipment: equipment,
+    deletedIds: deletedIds
   };
 }
 
 // ---- POST handlers ----
 
 function handleSaveDog(dog) {
+  // Never re-create a permanently-deleted dog. A stale device's fire-and-forget
+  // saveDog (or a local-only push that raced the delete) would otherwise append
+  // the row straight back. The Deletions tombstone makes the server authoritative.
+  if (dog && dog.id && isDeletedId(dog.id)) {
+    return { success: true, skipped: 'deleted', id: dog.id };
+  }
+
   var sheet = getSheet('Dogs');
   var headers = getHeaders(sheet);
   var equipStr = Array.isArray(dog.equipment) ? dog.equipment.join(',') : (dog.equipment || '');
@@ -211,7 +229,7 @@ function handleSaveDog(dog) {
     if (h === 'equipment') return equipStr;
     if (h === 'archived') return String(dog.archived || false);
     if (h === 'updatedAt') return now;
-    return dog[h] || '';
+    return (dog[h] != null && dog[h] !== '') ? dog[h] : '';
   });
 
   var existingRow = findRowIndex(sheet, 0, dog.id); // col 0 = id
@@ -304,12 +322,14 @@ function handleSyncAll(data) {
       dogsSheet.getRange(2, 1, dogsSheet.getLastRow() - 1, dogsSheet.getLastColumn()).clearContent();
     }
     var dogHeaders = getHeaders(dogsSheet);
+    var deletedSet = getDeletedIdSet();
     data.dogs.forEach(function(dog) {
+      if (dog.id && deletedSet[dog.id]) return; // never resurrect a tombstoned dog
       var equipStr = Array.isArray(dog.equipment) ? dog.equipment.join(',') : (dog.equipment || '');
       var row = dogHeaders.map(function(h) {
         if (h === 'equipment') return equipStr;
         if (h === 'archived') return String(dog.archived || false);
-        return dog[h] || '';
+        return (dog[h] != null && dog[h] !== '') ? dog[h] : '';
       });
       dogsSheet.appendRow(row);
     });
@@ -336,4 +356,71 @@ function handleSyncAll(data) {
   }
 
   return { success: true, message: 'Full sync complete' };
+}
+
+// ---- Permanent deletion + tombstones ----
+//
+// Deleting a dog must be permanent and survive every sync. We (1) remove the
+// Dogs row and its Assignments, and (2) write the id to a "Deletions" tab
+// (auto-created: headers id | deletedAt). getAll returns these ids so every
+// client tombstones them, and handleSaveDog / handleSyncAll refuse to write a
+// tombstoned id back. That closes all resurrection paths: pull re-add, the
+// local-only saveDog push, and the destructive full-rewrite from a stale device.
+
+function getOrCreateSheet(name, headers) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length) sheet.appendRow(headers);
+  }
+  return sheet;
+}
+
+function getDeletedIds() {
+  var sheet = getSheet('Deletions');
+  if (!sheet) return [];
+  return sheetToObjects(sheet)
+    .map(function(r) { return r.id; })
+    .filter(function(id) { return id !== '' && id != null; });
+}
+
+function getDeletedIdSet() {
+  var set = {};
+  getDeletedIds().forEach(function(id) { set[id] = true; });
+  return set;
+}
+
+function isDeletedId(id) {
+  return getDeletedIdSet()[id] === true;
+}
+
+function handleDeleteDog(data) {
+  var id = data && data.id;
+  if (!id) return { error: 'deleteDog requires an id' };
+
+  // 1. Remove the dog's row from Dogs (so the TV display stops showing it).
+  var dogsSheet = getSheet('Dogs');
+  if (dogsSheet) {
+    var rowIndex = findRowIndex(dogsSheet, 0, id);
+    if (rowIndex > 0) dogsSheet.deleteRow(rowIndex);
+  }
+
+  // 2. Remove every assignment for this dog. Delete bottom-up so earlier
+  //    row indices don't shift as we go.
+  var assignSheet = getSheet('Assignments');
+  if (assignSheet) {
+    var aData = assignSheet.getDataRange().getValues();
+    for (var i = aData.length - 1; i >= 1; i--) {
+      if (String(aData[i][0]) === String(id)) assignSheet.deleteRow(i + 1);
+    }
+  }
+
+  // 3. Record the tombstone (idempotent) so no sync can bring it back.
+  var delSheet = getOrCreateSheet('Deletions', ['id', 'deletedAt']);
+  if (findRowIndex(delSheet, 0, id) < 0) {
+    delSheet.appendRow([id, new Date().toISOString()]);
+  }
+
+  return { success: true, id: id };
 }

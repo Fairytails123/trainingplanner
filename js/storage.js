@@ -22,7 +22,8 @@ window.FT.Storage = (function () {
     dogs: 'ft_dogs',
     configSlots: 'ft_config_timeslots',
     configEquipment: 'ft_config_equipment',
-    sheetsUrl: 'ft_sheets_api_url'
+    sheetsUrl: 'ft_sheets_api_url',
+    deleted: 'ft_deleted_dogs'
   };
 
   function slotKey(dateStr) {
@@ -51,6 +52,36 @@ window.FT.Storage = (function () {
 
   function generateId(prefix) {
     return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  // ---- Deletion tombstones ----
+  //
+  // A permanently-deleted dog is removed from localStorage, but the Sheet is what
+  // every sync trusts. Without a record of the deletion, syncFromSheets re-adds the
+  // dog as a "Sheet-only" entry (and a full push from a stale device rewrites it).
+  // So we keep a persistent set of deleted ids here and consult it on EVERY sync
+  // path — pull-merge, local-only push, and slot merge — so nothing resurrects a
+  // deleted dog. Ids are also mirrored to the Sheet's Deletions tab, so other
+  // devices learn the deletion on their next pull.
+
+  function getDeletedIds() {
+    var arr = read(KEYS.deleted);
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  function deletedSet() {
+    var set = {};
+    getDeletedIds().forEach(function (id) { set[id] = true; });
+    return set;
+  }
+
+  function addDeletedId(id) {
+    if (!id) return;
+    var ids = getDeletedIds();
+    if (ids.indexOf(id) === -1) {
+      ids.push(id);
+      write(KEYS.deleted, ids);
+    }
   }
 
   // ---- Google Sheets sync ----
@@ -137,6 +168,13 @@ window.FT.Storage = (function () {
    * For duplicates, the one with the newer updatedAt wins.
    */
   function mergeDogLists(localDogs, sheetDogs) {
+    // Never let a permanently-deleted dog survive a merge. Filtering both inputs
+    // means a tombstoned dog can't come back as a Sheet-only re-add, nor linger
+    // locally, nor get pushed back via the local-only path below.
+    var deleted = deletedSet();
+    localDogs = localDogs.filter(function (d) { return !deleted[d.id]; });
+    sheetDogs = sheetDogs.filter(function (d) { return !deleted[d.id]; });
+
     sheetDogs.forEach(normalizeDogFromSheet);
 
     var sheetMap = {};
@@ -181,11 +219,17 @@ window.FT.Storage = (function () {
    * Merge slot assignments for a single date. Same logic: local-only slots get pushed.
    */
   function mergeSlotAssignments(localSlots, sheetSlots) {
-    var merged = Object.assign({}, localSlots);
+    var deleted = deletedSet();
+    var merged = {};
+    // Drop any assignment belonging to a deleted dog from the local side too.
+    Object.keys(localSlots).forEach(function (dogId) {
+      if (!deleted[dogId]) merged[dogId] = localSlots[dogId];
+    });
     var localOnly = [];
 
-    // Sheet slots override local (or add new)
+    // Sheet slots override local (or add new) — but never for a deleted dog
     Object.keys(sheetSlots).forEach(function (dogId) {
+      if (deleted[dogId]) return;
       var sheet = sheetSlots[dogId];
       var local = localSlots[dogId];
       if (local) {
@@ -199,8 +243,9 @@ window.FT.Storage = (function () {
       }
     });
 
-    // Find local-only assignments to push
+    // Find local-only assignments to push (never for a deleted dog)
     Object.keys(localSlots).forEach(function (dogId) {
+      if (deleted[dogId]) return;
       if (!sheetSlots[dogId]) {
         localOnly.push(localSlots[dogId]);
       }
@@ -229,9 +274,21 @@ window.FT.Storage = (function () {
           return;
         }
 
-        // Two-way merge dogs
-        var localDogs = getDogs();
+        // Learn about deletions made on other devices, then make sure every
+        // tombstoned dog is actually gone from the Sheet. A delete is a
+        // fire-and-forget no-cors POST, so a pull can race ahead of it (or it can
+        // be dropped); re-sending the delete for any id still present makes
+        // deletion self-healing and converges the Sheet (and the TV display).
         var sheetDogs = data.dogs || [];
+        (data.deletedIds || []).forEach(addDeletedId);
+        var sheetIds = {};
+        sheetDogs.forEach(function (d) { sheetIds[d.id] = true; });
+        getDeletedIds().forEach(function (id) {
+          if (sheetIds[id]) syncToSheets('deleteDog', { id: id });
+        });
+
+        // Two-way merge dogs (mergeDogLists drops anything tombstoned)
+        var localDogs = getDogs();
         var dogMerge = mergeDogLists(localDogs, sheetDogs);
         write(KEYS.dogs, dogMerge.all);
 
@@ -267,7 +324,9 @@ window.FT.Storage = (function () {
             if (!data.slotsByDate || !data.slotsByDate[dateStr]) {
               // This entire date's assignments are local-only
               var localOnlySlots = read(key) || {};
+              var deletedDogs = deletedSet();
               Object.keys(localOnlySlots).forEach(function (dogId) {
+                if (deletedDogs[dogId]) return; // don't recreate a deleted dog's slots
                 syncToSheets('setSlot', localOnlySlots[dogId]);
               });
             }
@@ -485,15 +544,53 @@ window.FT.Storage = (function () {
     }
   }
 
+  // Bring an archived dog back into the active list.
+  function restoreDog(id) {
+    var dogs = getDogs();
+    var idx = dogs.findIndex(function (d) { return d.id === id; });
+    if (idx >= 0) {
+      dogs[idx].archived = false;
+      dogs[idx].updatedAt = new Date().toISOString();
+      write(KEYS.dogs, dogs);
+      syncToSheets('saveDog', dogs[idx]);
+    }
+  }
+
+  // Permanently delete a dog. The tombstone is recorded FIRST so that even if
+  // anything below races a concurrent sync, no pull/push can resurrect it. The
+  // server-side deleteDog removes the Sheet row (so the TV display drops it) and
+  // records its own tombstone for other devices.
   function deleteDog(id) {
-    var dogs = getDogs().filter(function (d) { return d.id !== id; });
-    write(KEYS.dogs, dogs);
+    if (!id) return;
+    addDeletedId(id);
+
+    write(KEYS.dogs, getDogs().filter(function (d) { return d.id !== id; }));
+
+    // Drop the dog's local slot assignments across every date.
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (key && key.startsWith('ft_slots_')) {
+        var slots = read(key) || {};
+        if (slots[id]) {
+          delete slots[id];
+          write(key, slots);
+        }
+      }
+    }
+
+    syncToSheets('deleteDog', { id: id });
   }
 
   function getActiveDogs() {
     return getDogs()
       .filter(function (d) { return !d.archived; })
       .sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+
+  function getArchivedDogs() {
+    return getDogs()
+      .filter(function (d) { return d.archived; })
+      .sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
   }
 
   // ---- Slot assignments ----
@@ -610,8 +707,10 @@ window.FT.Storage = (function () {
     getDog: getDog,
     saveDog: saveDog,
     archiveDog: archiveDog,
+    restoreDog: restoreDog,
     deleteDog: deleteDog,
     getActiveDogs: getActiveDogs,
+    getArchivedDogs: getArchivedDogs,
     getSlots: getSlots,
     setSlot: setSlot,
     removeSlot: removeSlot,
