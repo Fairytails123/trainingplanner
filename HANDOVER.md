@@ -53,10 +53,17 @@ covered by `.claude/redesign-smoke-test.js`-style node tests in
 `.claude/tombstone-test.js` (includes the exact reported race). The Archived-dogs
 UI was render-verified in headless Chrome.
 
+**Confirmed in production.** User then deleted all archived dogs via the new UI
+(27 → 10 active, 0 archived); `getAll` shows all 17 deletions correctly
+tombstoned in `deletedIds` and none resurrected — the fix works end-to-end.
+`deletedIds` / the Deletions tab are now load-bearing — **don't clear real
+tombstones**, and always delete dogs through the app, never by editing the Sheet
+(a Sheet-side delete leaves no tombstone → a stale device re-pushes the dog).
+
 **Loose end.** Two inert test tombstones (`dog_zzTEST_…`) remain in the Deletions
-tab from live testing — harmless (no real dog has those ids); delete those two
-rows if you want it pristine. The clasp working copy lives at the workspace-root
-`.appsscript-work/` (not committed).
+tab from live testing — harmless (no real dog has those ids); delete just those
+two rows if you want it pristine. The clasp working copy lives at the
+workspace-root `.appsscript-work/` (not committed).
 
 ---
 
