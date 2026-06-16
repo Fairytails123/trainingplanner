@@ -18,6 +18,48 @@ Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
 
 ---
 
+## Session record — 16 June 2026
+
+### Deletion bug — deleted dogs were restored by sync (fixed)
+
+**Symptom.** Deleting an (archived) dog from the app didn't stick: it came back
+and reappeared on the TV display.
+
+**Cause.** `deleteDog` was local-only — it removed the dog from localStorage but
+never told the Sheet, which every sync trusts. So `syncFromSheets`/`mergeDogLists`
+re-added it as a "Sheet-only" dog, and a destructive `syncAll` from a stale
+device could rewrite it as active. The display reads the Sheet directly, so it
+never stopped showing it. (There was no UI to delete an archived dog either.)
+
+**Fix — server-side hard delete + tombstones consulted by every sync path:**
+- **Apps Script** (`google-apps-script.js`, redeployed to the prod deployment id
+  `AKfycbz…564RrR`, now `@6`): new `deleteDog` action removes the Dogs row + the
+  dog's Assignments and writes the id to an auto-created **Deletions** tab
+  (`id | deletedAt`). `getAll` now returns `deletedIds`. `handleSaveDog` and
+  `handleSyncAll` refuse to write a tombstoned id, so no push can resurrect it.
+- **storage.js**: `deleteDog` records a persistent local tombstone
+  (`ft_deleted_dogs`), removes the dog + its local slots, and POSTs the server
+  delete. `mergeDogLists`, the slot merge and the local-only pushes all drop
+  tombstoned ids; `syncFromSheets` ingests server `deletedIds` and re-sends the
+  delete for any tombstoned dog still on the Sheet (self-heals the fire-and-forget
+  no-cors race, and propagates deletions across devices). Added `restoreDog` +
+  `getArchivedDogs`.
+- **Settings → "Archived dogs"** (settings.js/styles.css): lists archived dogs
+  with **Restore** and permanent **Delete** (confirm-gated). SW bumped to v7.
+
+**Verified.** Live: `deleteDog` removes the row + tombstones it; `saveDog`/
+`syncAll` can't bring it back; `getAll` returns `deletedIds`. Client logic is
+covered by `.claude/redesign-smoke-test.js`-style node tests in
+`.claude/tombstone-test.js` (includes the exact reported race). The Archived-dogs
+UI was render-verified in headless Chrome.
+
+**Loose end.** Two inert test tombstones (`dog_zzTEST_…`) remain in the Deletions
+tab from live testing — harmless (no real dog has those ids); delete those two
+rows if you want it pristine. The clasp working copy lives at the workspace-root
+`.appsscript-work/` (not committed).
+
+---
+
 ## Session record — 11 June 2026
 
 ### 1. Bug-fix batch (15 verified findings from a deep code review of the iOS redesign commits)
