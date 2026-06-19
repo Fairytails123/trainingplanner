@@ -67,6 +67,33 @@ window.FT.Calendar = (function () {
   }
 
   /**
+   * Format an ISO date string ('YYYY-MM-DD', how training dates are stored) as
+   * '12 Jan 25'. Parses the string directly — no Date object — so a value like
+   * '2025-01-12' can never shift a day across a timezone boundary. Returns ''
+   * for blank or unparseable input so callers can skip empty fields.
+   */
+  function formatISOShort(isoStr) {
+    if (!isoStr) return '';
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(isoStr));
+    if (!m) return '';
+    var mon = MONTHS[parseInt(m[2], 10) - 1];
+    if (!mon) return '';
+    return parseInt(m[3], 10) + ' ' + mon + ' ' + m[1].slice(2);
+  }
+
+  /**
+   * Format a training-break window as '12 Jan 25 to 16 Jan 25'. Degrades
+   * gracefully when only one end is set (returns just that date) and to ''
+   * when neither is set.
+   */
+  function formatISORange(startStr, endStr) {
+    var s = formatISOShort(startStr);
+    var e = formatISOShort(endStr);
+    if (s && e) return s + ' to ' + e;
+    return s || e || '';
+  }
+
+  /**
    * Check if a date is today.
    */
   function isToday(date) {
@@ -125,6 +152,8 @@ window.FT.Calendar = (function () {
     getMonday: getMonday,
     getWeekDates: getWeekDates,
     formatDate: formatDate,
+    formatISOShort: formatISOShort,
+    formatISORange: formatISORange,
     isToday: isToday,
     isPast: isPast,
     navigateWeek: navigateWeek,

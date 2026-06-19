@@ -10,6 +10,8 @@
  *
  *    Tab: Dogs
  *    Headers: id | name | breed | ownerName | equipment | notes | archived | createdAt | updatedAt
+ *      (plus weekNumber | weekNumberSetDate | trainingEndDate |
+ *       break1Start | break1End | break2Start | break2End — auto-added by ensureDogColumns_)
  *
  *    Tab: Assignments
  *    Headers: dogId | date | slotId | createdAt | updatedAt
@@ -160,9 +162,31 @@ function getHeaders(sheet) {
   return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 }
 
+// Dog columns added after the original schema. handleSaveDog/handleSyncAll map
+// over the live header row, so a field with no matching header column is silently
+// dropped. ensureDogColumns_ appends any missing header so new fields persist
+// without anyone hand-editing the Sheet. Idempotent: a no-op read once present.
+var DOG_EXTRA_COLUMNS = [
+  'weekNumber', 'weekNumberSetDate',
+  'trainingEndDate', 'break1Start', 'break1End', 'break2Start', 'break2End'
+];
+
+function ensureDogColumns_() {
+  var sheet = getSheet('Dogs');
+  if (!sheet) return;
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var missing = DOG_EXTRA_COLUMNS.filter(function (col) {
+    return headers.indexOf(col) === -1;
+  });
+  if (missing.length === 0) return;
+  sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+}
+
 // ---- GET handlers ----
 
 function handleGetAll() {
+  ensureDogColumns_(); // self-heal: make sure new dog fields have header columns
   var dogsSheet = getSheet('Dogs');
   var assignSheet = getSheet('Assignments');
   var slotsSheet = getSheet('Config_Slots');
@@ -220,6 +244,7 @@ function handleSaveDog(dog) {
     return { success: true, skipped: 'deleted', id: dog.id };
   }
 
+  ensureDogColumns_(); // make sure new dog fields have header columns before writing
   var sheet = getSheet('Dogs');
   var headers = getHeaders(sheet);
   var equipStr = Array.isArray(dog.equipment) ? dog.equipment.join(',') : (dog.equipment || '');
@@ -316,6 +341,7 @@ function handleSaveConfig(sheetName, items, columns) {
 
 function handleSyncAll(data) {
   // Full sync: receives all data from the planner and overwrites the sheet
+  ensureDogColumns_(); // make sure new dog fields have header columns before writing
   if (data.dogs) {
     var dogsSheet = getSheet('Dogs');
     if (dogsSheet.getLastRow() > 1) {

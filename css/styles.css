@@ -821,6 +821,15 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
 }
 textarea.form-input { min-height: 80px; resize: vertical; }
 
+/* Date-range row: two native date inputs with a "to" separator (break windows) */
+.date-range { display: flex; align-items: center; gap: 8px; }
+.date-range .form-input { flex: 1 1 0; min-width: 0; }
+.date-range__sep {
+  flex: 0 0 auto;
+  font-size: 13px; font-weight: 600;
+  color: var(--text-3);
+}
+
 .equipment-picker {
   display: flex; flex-wrap: wrap; gap: 8px;
 }
@@ -1296,6 +1305,24 @@ button.snapshot__tile:active { transform: scale(0.96); }
   min-height: 44px;
 }
 .dog-card__notes .note-ico { flex: 0 0 auto; }
+
+/* Training end date + break windows inside the expanded card */
+.dog-card__dates {
+  padding: 10px 14px;
+  border-top: 1px solid var(--separator);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.dog-card__date-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  font-size: 13px;
+}
+.dog-card__date-label {
+  flex: 0 0 auto;
+  font-size: 11px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.dog-card__date-val { font-weight: 600; color: var(--text); text-align: right; }
+
 .notes-sheet { padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
 .notes-sheet .form-input { margin-bottom: 12px; min-height: 110px; }
 

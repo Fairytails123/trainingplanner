@@ -18,6 +18,41 @@ Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
 
 ---
 
+## Session record — 19 June 2026
+
+### Training-date fields: end date + two break windows
+
+Added three new dog date fields, end-to-end:
+
+- **New dog fields** (camelCase, stored as `YYYY-MM-DD` strings, `''` when blank):
+  `trainingEndDate`, and two break "training windows" `break1Start`/`break1End`,
+  `break2Start`/`break2End`.
+- **Edit/Add Dog modal** (`js/planner.js` `openDogModal`): a native date input for
+  the end date and two `.date-range` rows (two date inputs + a "to" separator) for
+  the breaks. Save handler writes all five; cleared fields store `''` so a blank
+  overwrites on sync.
+- **Expanded card** shows a `.dog-card__dates` block (only rows that have a value).
+- **`js/calendar.js`** gained `formatISOShort()` ("12 Jan 25") and `formatISORange()`
+  ("12 Jan 25 to 16 Jan 25") — both parse the `YYYY-MM-DD` string directly (no
+  `Date` object) so a value never shifts a day across a timezone.
+- **`storage.js` unchanged** — `saveDog`/merge pass the whole dog through, so the
+  new fields round-trip with no data-layer change (verified by the node smoke +
+  tombstone tests, still green).
+- **Backend** (`google-apps-script.js` / live `.appsscript-work/Code.js`, redeployed
+  to the prod deployment id → `@7`): new `ensureDogColumns_()` appends any missing
+  Dogs header (idempotent) and runs before every write/read path
+  (`handleGetAll`/`handleSaveDog`/`handleSyncAll`). Without it, the header-mapped
+  writers would silently drop a field that has no column. Verified live: `getAll`
+  auto-created the 5 columns; a save→read→delete round-trip preserved all dates
+  exactly through the Sheets date-coercion.
+- **Cache-bust:** `sw.js` `CACHE_NAME` → `ft-planner-v8`.
+- Reviewed by an adversarial multi-agent pass (0 confirmed bugs); one free
+  hardening applied on the display side (wrap, don't clip, long break ranges).
+
+The TV display renders these **right-aligned** — see the display repo's handover.
+
+---
+
 ## Session record — 16 June 2026
 
 ### Deletion bug — deleted dogs were restored by sync (fixed)

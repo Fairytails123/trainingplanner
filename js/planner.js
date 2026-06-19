@@ -175,6 +175,26 @@ window.FT.Planner = (function () {
         '<input type="number" class="form-input" id="dog-week-number" min="0" value="' + (editDog.weekNumber != null ? editDog.weekNumber : '') + '" placeholder="Leave blank if not tracking">' +
       '</div>' +
       '<div class="form-group">' +
+        '<label class="form-label">Training end date</label>' +
+        '<input type="date" class="form-input" id="dog-end-date" value="' + escapeAttr(editDog.trainingEndDate || '') + '">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Break 1 training window</label>' +
+        '<div class="date-range">' +
+          '<input type="date" class="form-input" id="dog-break1-start" value="' + escapeAttr(editDog.break1Start || '') + '" aria-label="Break 1 start date">' +
+          '<span class="date-range__sep">to</span>' +
+          '<input type="date" class="form-input" id="dog-break1-end" value="' + escapeAttr(editDog.break1End || '') + '" aria-label="Break 1 end date">' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Break 2 training window</label>' +
+        '<div class="date-range">' +
+          '<input type="date" class="form-input" id="dog-break2-start" value="' + escapeAttr(editDog.break2Start || '') + '" aria-label="Break 2 start date">' +
+          '<span class="date-range__sep">to</span>' +
+          '<input type="date" class="form-input" id="dog-break2-end" value="' + escapeAttr(editDog.break2End || '') + '" aria-label="Break 2 end date">' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-group">' +
         '<label class="form-label">Equipment defaults</label>' +
         '<div id="dog-equipment-picker">' + FT.Equipment.renderPickerChips(selectedEquipment) + '</div>' +
       '</div>' +
@@ -226,6 +246,14 @@ window.FT.Planner = (function () {
           editDog.ownerName = modal.querySelector('#dog-owner').value.trim();
           editDog.equipment = selectedEquipment;
           editDog.notes = modal.querySelector('#dog-notes').value.trim();
+
+          // Training dates round-trip as 'YYYY-MM-DD' strings (native date inputs);
+          // store '' for blanks so a cleared field overwrites the old value on sync.
+          editDog.trainingEndDate = modal.querySelector('#dog-end-date').value || '';
+          editDog.break1Start = modal.querySelector('#dog-break1-start').value || '';
+          editDog.break1End = modal.querySelector('#dog-break1-end').value || '';
+          editDog.break2Start = modal.querySelector('#dog-break2-start').value || '';
+          editDog.break2End = modal.querySelector('#dog-break2-end').value || '';
 
           var weekVal = modal.querySelector('#dog-week-number').value.trim();
           if (weekVal !== '') {
@@ -517,6 +545,18 @@ window.FT.Planner = (function () {
         FT.Equipment.renderTags(dog.equipment) +
         '<button class="equipment-change-btn" data-equip-dog="' + dog.id + '">Change</button>' +
       '</div>';
+
+      // Training end date + break windows (only render rows that have a value)
+      var endStr = FT.Calendar.formatISOShort(dog.trainingEndDate);
+      var break1 = FT.Calendar.formatISORange(dog.break1Start, dog.break1End);
+      var break2 = FT.Calendar.formatISORange(dog.break2Start, dog.break2End);
+      if (endStr || break1 || break2) {
+        html += '<div class="dog-card__dates">';
+        if (endStr) html += '<div class="dog-card__date-row"><span class="dog-card__date-label">Training ends</span><span class="dog-card__date-val">' + escapeHtml(endStr) + '</span></div>';
+        if (break1) html += '<div class="dog-card__date-row"><span class="dog-card__date-label">Break 1</span><span class="dog-card__date-val">' + escapeHtml(break1) + '</span></div>';
+        if (break2) html += '<div class="dog-card__date-row"><span class="dog-card__date-label">Break 2</span><span class="dog-card__date-val">' + escapeHtml(break2) + '</span></div>';
+        html += '</div>';
+      }
 
       if (dog.notes) {
         html += '<div class="dog-card__notes" data-notes-dog="' + dog.id + '">' +
