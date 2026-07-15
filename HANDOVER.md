@@ -18,6 +18,60 @@ Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
 
 ---
 
+## Session record — 15 July 2026
+
+### Backend hardening — max-effort review of the server-side week-increment + write lock
+
+A max-effort multi-agent code review (6 finder angles, 20 independent verifiers)
+went over the then-uncommitted backend change that (a) serialises every `doPost`
+write behind a `LockService` script lock and (b) advances each dog's `weekNumber`
+once per ISO-week server-side (`autoIncrementWeekNumbers()`, run from
+`handleGetAll`). 12 findings kept, 5 refuted. **Three "must-fix" defects were
+fixed and deployed** to the prod deployment id (`AKfycbz…564RrR`, **@8 → @9**);
+the repo mirror `google-apps-script.js` was synced and committed with this record.
+
+**Fixes (`.appsscript-work/Code.js` + mirror):**
+1. **NaN guard** — a malformed `weekNumberSetDate` (e.g. a hand-typed `2025-12`)
+   made `ymdToMs_` return `NaN`; `NaN < 1` is false, so the old clamp let it
+   through and wrote `weekNumber = NaN`. Now `if (!(weeksElapsed >= 1))` catches
+   NaN / 0 / negative.
+2. **Per-row resilience** — each per-dog write is wrapped in `try/catch` +
+   `Logger.log`; one bad/protected row is skipped, not thrown out of the loop.
+   Previously one poison cell aborted the whole pass (the `weekIncDone` marker is
+   set only *after* the loop), freezing **every** dog's advance and re-spinning the
+   locked read-modify-write on every 30s TV poll.
+3. **flush before unlock** — `SpreadsheetApp.flush()` now precedes `releaseLock()`
+   at both sites (doPost + the increment) so the next holder can't read stale,
+   still-buffered rows and lose an increment/save. Guarded so a flush error can't
+   leak the lock.
+
+Verified: both files `node --check` clean; live `ping` + `getAll` healthy after
+redeploy. Note: mid-week deploy, so the increment early-outed — the loop body's
+first *runtime* exercise is the next Monday rollover (syntax- + logic-verified).
+
+**Deferred findings (reviewed, NOT fixed — don't re-discover):**
+- **`updatedAt` widens last-write-wins loss** — `getAll` now rewrites `updatedAt`
+  for every dog on the first poll each week, so a stale Sheet row can outrank an
+  unsynced local edit. Candidate fix: don't touch `updatedAt` in the server
+  increment (write only the two week cells).
+- **Once-per-week marker is not a continuous healer** — after the first pass each
+  Monday, a mid-week reversion (stale-device push / hand-edit) isn't re-advanced
+  server-side until next Monday (heals on next planner open). Conscious tradeoff.
+- **`wk >= 100` self-heal runs unattended 24/7** — collapses a genuine
+  week-99→100 dog back to ~11. Raise/remove the server threshold if any dog is
+  tracked ~2 years.
+- **Client/server `weeksElapsed` floor divergence** — the server floors at 1, the
+  client (`storage.js`) does not → a permanent planner-vs-TV disagreement for a
+  non-Monday `weekNumberSetDate` near the boundary. Unify the two routines.
+- **Lock contention on a large roster** — the best-effort no-lock timeout path
+  reopens the `deleteRow` race, and a 25s-held lock can exhaust the execution
+  ceiling and drop no-cors writes. Batching the per-dog writes into one `setValues`
+  shortens the critical section and is the best single mitigation.
+- **Cleanup** — `formatCellDate_` duplicates the Date→`YYYY-MM-DD` logic in
+  `sheetToObjects`.
+
+---
+
 ## Session record — 19 June 2026
 
 ### Training-date fields: end date + two break windows

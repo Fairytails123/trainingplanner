@@ -63,6 +63,17 @@ function doGet(e) {
 function doPost(e) {
   var result;
 
+  // Serialise all writes through the SAME script lock the weekly auto-increment
+  // uses, so concurrent saves/deletes can't interleave a row rewrite (or a
+  // deleteRow that shifts indices) into the increment's read-modify-write, and
+  // can't tear each other's whole-row writes. Best-effort: if the lock can't be
+  // acquired we still proceed (never silently drop a fire-and-forget write) —
+  // that only degrades to the old unlocked behaviour, which essentially never
+  // happens because every holder releases within well under a second.
+  var lock = LockService.getScriptLock();
+  var haveLock = false;
+  try { lock.waitLock(25000); haveLock = true; } catch (eLock) { haveLock = false; }
+
   try {
     var body = JSON.parse(e.postData.contents);
     var action = body.action;
@@ -97,6 +108,13 @@ function doPost(e) {
     }
   } catch (err) {
     result = { error: err.message };
+  } finally {
+    // Flush buffered writes before releasing so the next lock holder sees them
+    // (see autoIncrementWeekNumbers). Guarded so a flush error can't leak the lock.
+    if (haveLock) {
+      try { SpreadsheetApp.flush(); } catch (eFlush) {}
+      lock.releaseLock();
+    }
   }
 
   return ContentService
@@ -183,9 +201,182 @@ function ensureDogColumns_() {
   sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
 }
 
+// ---- Weekly training-week auto-increment (server-side, time-independent) ----
+//
+// Every dog's training week must advance by 1 each ISO-week automatically. This
+// used to live ONLY in the planner PWA (FT.Storage.autoIncrementWeekNumbers, run
+// at app boot), so weeks went static in any week nobody opened/rebooted the app —
+// the always-on Sheet + TV display had no way to move them.
+//
+// Now the increment also runs server-side, invoked from handleGetAll. The TV
+// display's 24/7 30-second poll (and any planner sync) therefore advances every
+// tracked dog within ~30s of a new week starting, with no client interaction and
+// no installed trigger required. The script timezone (Europe/London, see
+// appsscript.json) defines when "Monday" begins.
+//
+// Idempotent and race-safe with the client routine: both add the same
+// weeksElapsed from the same base and then stamp weekNumberSetDate = thisMonday,
+// and the incremented week is always written together with the stamp, so whoever
+// runs first stamps the week and the per-dog `weekNumberSetDate < thisMonday`
+// guard turns any second pass into a no-op (no double-increment). A
+// ScriptProperties marker makes the heavy path run at most once per week.
+//
+// The script lock below is the SAME lock doPost acquires for every write, so the
+// once-weekly read-modify-write here is genuinely mutually exclusive with
+// handleSaveDog / handleSyncAll / handleDeleteDog etc. That matters: without it a
+// concurrent deleteDog (deleteRow) could shift the rows out from under our cached
+// indices and we'd stamp the wrong dog, and a concurrent saveDog could clobber
+// half of our row. (A GAS lock is cooperative — it only excludes code that also
+// takes it — which is why doPost must take it too.)
+
+function getMondayStr_(d) {
+  var day = d.getDay(); // 0=Sun .. 6=Sat, in the script's timezone
+  var diff = day === 0 ? -6 : 1 - day;
+  var monday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  monday.setDate(monday.getDate() + diff);
+  var mm = ('0' + (monday.getMonth() + 1)).slice(-2);
+  var dd = ('0' + monday.getDate()).slice(-2);
+  return monday.getFullYear() + '-' + mm + '-' + dd;
+}
+
+function formatCellDate_(v) {
+  if (v instanceof Date) {
+    var mm = ('0' + (v.getMonth() + 1)).slice(-2);
+    var dd = ('0' + v.getDate()).slice(-2);
+    return v.getFullYear() + '-' + mm + '-' + dd;
+  }
+  if (v === null || v === undefined) return '';
+  return String(v).trim();
+}
+
+function ymdToMs_(s) {
+  var p = String(s).split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getTime();
+}
+
+function autoIncrementWeekNumbers() {
+  var currentMonday = getMondayStr_(new Date());
+
+  // Cheap early-out: the real work only needs to happen once per ISO-week. The
+  // first request after a new Monday begins does it and stamps this marker; every
+  // later poll that week returns after a single ScriptProperties read.
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('weekIncDone') === currentMonday) {
+    return { success: true, skipped: 'already-done', monday: currentMonday };
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+  } catch (eLock) {
+    return { success: false, error: 'lock unavailable' };
+  }
+
+  try {
+    // Re-check inside the lock: another request may have just finished.
+    if (props.getProperty('weekIncDone') === currentMonday) {
+      return { success: true, skipped: 'already-done', monday: currentMonday };
+    }
+
+    ensureDogColumns_();
+    var sheet = getSheet('Dogs');
+    if (!sheet) return { success: false, error: 'Dogs sheet not found' };
+
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      props.setProperty('weekIncDone', currentMonday);
+      return { success: true, updated: 0, monday: currentMonday };
+    }
+
+    var headers = data[0];
+    var wkCol = headers.indexOf('weekNumber');
+    var setCol = headers.indexOf('weekNumberSetDate');
+    var updCol = headers.indexOf('updatedAt');
+    if (wkCol === -1 || setCol === -1) {
+      return { success: false, error: 'weekNumber/weekNumberSetDate column missing' };
+    }
+
+    var nowIso = new Date().toISOString();
+    var curMs = ymdToMs_(currentMonday);
+    var updated = 0;
+
+    for (var i = 1; i < data.length; i++) {
+      var raw = data[i][wkCol];
+      if (raw === '' || raw === null || raw === undefined) continue; // not tracking a week
+      var wk = parseInt(raw, 10);
+      if (isNaN(wk)) continue;
+
+      var changed = false;
+
+      // Self-heal the pre-d053912 concatenation corruption ("11" + 1 -> "111").
+      // Mirrors the planner's repairWeekNumber: a tracked week >= 100 is bogus.
+      if (wk >= 100) { wk = Math.floor(wk / 10); changed = true; }
+
+      var setStr = formatCellDate_(data[i][setCol]);
+
+      if (!setStr) {
+        // Tracked but never stamped: record this week as the baseline, do NOT
+        // increment (matches the planner's first-seen behaviour).
+        changed = true;
+      } else if (setStr < currentMonday) {
+        var weeksElapsed = Math.round((curMs - ymdToMs_(setStr)) / 604800000);
+        // Guard NaN as well as 0/negative. A malformed weekNumberSetDate (e.g. a
+        // hand-typed '2025-12' or bare '2025') makes ymdToMs_ return NaN, and
+        // `NaN < 1` is FALSE — so the old `weeksElapsed < 1` check let NaN through
+        // and wrote weekNumber = wk + NaN = NaN. `!(x >= 1)` catches NaN, 0 and
+        // negatives, so a bad date just re-baselines this week (+1) instead.
+        if (!(weeksElapsed >= 1)) weeksElapsed = 1;
+        wk = wk + weeksElapsed;
+        changed = true;
+      }
+
+      if (changed) {
+        // Isolate the per-row write: one malformed or protected row must never
+        // throw out of the whole loop. The 'weekIncDone' marker is only set AFTER
+        // the loop, so an abort would leave every OTHER dog un-advanced and re-spin
+        // this locked read-modify-write on every 30s TV poll. Skip the row instead.
+        try {
+          var rowNum = i + 1;
+          // updatedAt | weekNumber | weekNumberSetDate are adjacent in the schema
+          // (updatedAt is the last original column; ensureDogColumns_ appends
+          // weekNumber then weekNumberSetDate right after it). Write all three in a
+          // single setValues so the row update is atomic and the read-to-write
+          // window is as small as possible. Fall back to cell-by-cell if a future
+          // schema reorders them.
+          if (updCol !== -1 && wkCol === updCol + 1 && setCol === wkCol + 1) {
+            sheet.getRange(rowNum, updCol + 1, 1, 3).setValues([[nowIso, wk, currentMonday]]);
+          } else {
+            sheet.getRange(rowNum, wkCol + 1).setValue(wk);
+            sheet.getRange(rowNum, setCol + 1).setValue(currentMonday);
+            if (updCol !== -1) sheet.getRange(rowNum, updCol + 1).setValue(nowIso);
+          }
+          updated++;
+        } catch (rowErr) {
+          Logger.log('autoIncrementWeekNumbers: skipped Dogs row ' + (i + 1) + ': ' + rowErr);
+        }
+      }
+    }
+
+    props.setProperty('weekIncDone', currentMonday);
+    return { success: true, updated: updated, monday: currentMonday };
+  } finally {
+    // Commit buffered writes BEFORE releasing the lock so the next holder reads
+    // them. Otherwise GAS may flush at execution-end (after releaseLock) and a
+    // saveDog that grabs the lock next reads stale rows and loses the increment —
+    // the canonical LockService pitfall. Guarded so a flush error can't leak the
+    // lock (the release must always run).
+    try { SpreadsheetApp.flush(); } catch (eFlush) {}
+    lock.releaseLock();
+  }
+}
+
 // ---- GET handlers ----
 
 function handleGetAll() {
+  // Advance every dog's training week if a new ISO-week has begun. Wrapped so a
+  // failure here can never break the read the TV display depends on every 30s.
+  try { autoIncrementWeekNumbers(); } catch (errInc) { Logger.log('handleGetAll: autoIncrementWeekNumbers threw: ' + errInc); }
+
   ensureDogColumns_(); // self-heal: make sure new dog fields have header columns
   var dogsSheet = getSheet('Dogs');
   var assignSheet = getSheet('Assignments');
