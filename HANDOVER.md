@@ -28,7 +28,7 @@ write behind a `LockService` script lock and (b) advances each dog's `weekNumber
 once per ISO-week server-side (`autoIncrementWeekNumbers()`, run from
 `handleGetAll`). 12 findings kept, 5 refuted. **Three "must-fix" defects were
 fixed and deployed** to the prod deployment id (`AKfycbz…564RrR`, **@8 → @9**);
-the repo mirror `google-apps-script.js` was synced and committed with this record.
+the repo mirror `google-apps-script.js` was synced, committed, and pushed to origin/master (`986ab24`) with this record. **Session paused here (2026-07-15)** — the deferred findings below are the agreed next step.
 
 **Fixes (`.appsscript-work/Code.js` + mirror):**
 1. **NaN guard** — a malformed `weekNumberSetDate` (e.g. a hand-typed `2025-12`)
