@@ -14,7 +14,10 @@ asset changes — otherwise installed PWAs can serve a mixed old/new asset set.
 `ft_config_timeslots`, `ft_config_equipment`, `ft_sheets_api_url` (raw string,
 not JSON), `ft_slots_<YYYY-MM-DD>`. Sync actions: saveDog / archiveDog /
 setSlot / removeSlot / saveTimeSlots / saveEquipment / syncAll / getAll.
-Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
+Merge rules: newest `updatedAt` wins for dogs and slots; local-only/newer local
+records are re-sent individually. Sheet wins for config unless an additive
+`ft_pending_config_*` value is awaiting read-back verification. Normal UI sync
+must never call the destructive legacy `syncAll`.
 
 ---
 
@@ -43,6 +46,12 @@ Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
   remote-newer / pending-config preservation tests pass. A read-only live backup
   was captured before deployment (`live-data-backup-pre-ux-2026-07-26.json`,
   workspace root; 16 dogs, 22 tombstones).
+- **Published and verified:** commit `c594a55` on `master`; GitHub Pages serves
+  `ft-planner-v9`. Post-deploy comparison matched all 16 dog IDs, 22 assignment
+  keys and 22 tombstones exactly. Apps Script stayed at `@9`.
+- Next-session baseline: both planner/display worktrees were clean after push.
+  The remaining concurrency issue is the edit-dog modal's full-snapshot save;
+  use a field-diff save if addressing it.
 
 ## Session record — 15 July 2026
 
