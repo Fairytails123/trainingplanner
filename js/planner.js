@@ -12,8 +12,14 @@ window.FT.Planner = (function () {
   var bottomSheetEl = null;
   var backdropEl = null;
   var bottomSheetCallbacks = {};
+  var bottomSheetTrigger = null;
+  var bottomSheetKeyHandler = null;
   var activeFilter = 'all';   // all | unassigned | conflicts | am | pm | kit
   var searchQuery = '';
+
+  function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
 
   function init(monday) {
     currentMonday = monday || FT.Calendar.getCurrentMonday();
@@ -25,6 +31,7 @@ window.FT.Planner = (function () {
   // ---- Bottom sheet ----
   function openBottomSheet(options) {
     closeBottomSheet();
+    bottomSheetTrigger = document.activeElement;
 
     backdropEl = document.createElement('div');
     backdropEl.className = 'bottom-sheet-backdrop';
@@ -32,9 +39,13 @@ window.FT.Planner = (function () {
 
     bottomSheetEl = document.createElement('div');
     bottomSheetEl.className = 'bottom-sheet';
+    bottomSheetEl.setAttribute('role', 'dialog');
+    bottomSheetEl.setAttribute('aria-modal', 'true');
+    bottomSheetEl.setAttribute('aria-labelledby', 'bottom-sheet-title');
+    bottomSheetEl.setAttribute('tabindex', '-1');
     bottomSheetEl.innerHTML =
       '<div class="bottom-sheet__handle"></div>' +
-      '<div class="bottom-sheet__title">' + escapeHtml(options.title || '') + '</div>' +
+      '<div class="bottom-sheet__title" id="bottom-sheet-title">' + escapeHtml(options.title || '') + '</div>' +
       '<div class="bottom-sheet__content">' + (options.content || '') + '</div>';
 
     bottomSheetCallbacks = {
@@ -54,10 +65,24 @@ window.FT.Planner = (function () {
 
     document.getElementById('modal-root').appendChild(backdropEl);
     document.getElementById('modal-root').appendChild(bottomSheetEl);
+    document.body.classList.add('modal-open');
+    bottomSheetKeyHandler = function (e) {
+      if (e.key === 'Escape') closeBottomSheet();
+      if (e.key === 'Tab' && bottomSheetEl) {
+        var focusable = bottomSheetEl.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (!focusable.length) { e.preventDefault(); bottomSheetEl.focus(); return; }
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', bottomSheetKeyHandler);
+    bottomSheetEl.focus();
 
     requestAnimationFrame(function () {
       backdropEl.classList.add('visible');
-      if (window.gsap) {
+      if (window.gsap && !prefersReducedMotion()) {
         // GSAP owns the slide-in (CSS transition suppressed by .gsap-anim);
         // without GSAP the plain class toggle below animates via CSS
         bottomSheetEl.classList.add('gsap-anim');
@@ -76,6 +101,11 @@ window.FT.Planner = (function () {
   }
 
   function closeBottomSheet() {
+    if (bottomSheetKeyHandler) {
+      document.removeEventListener('keydown', bottomSheetKeyHandler);
+      bottomSheetKeyHandler = null;
+    }
+    document.body.classList.remove('modal-open');
     if (bottomSheetCallbacks.onClose) {
       bottomSheetCallbacks.onClose();
       bottomSheetCallbacks = {};
@@ -84,11 +114,13 @@ window.FT.Planner = (function () {
     var backdrop = backdropEl;
     bottomSheetEl = null;
     backdropEl = null;
+    var returnFocus = bottomSheetTrigger;
+    bottomSheetTrigger = null;
     if (!sheet) {
       if (backdrop) backdrop.remove();
       return;
     }
-    if (window.gsap) {
+    if (window.gsap && !prefersReducedMotion()) {
       // the dying sheet/backdrop must not eat taps during the slide-out
       sheet.style.pointerEvents = 'none';
       if (backdrop) {
@@ -98,26 +130,35 @@ window.FT.Planner = (function () {
       window.gsap.killTweensOf(sheet); // a close mid-open must not fight the open tween
       window.gsap.to(sheet, {
         y: window.innerHeight, duration: 0.32, ease: 'power3.in',
-        onComplete: function () { sheet.remove(); if (backdrop) backdrop.remove(); }
+        onComplete: function () {
+          sheet.remove(); if (backdrop) backdrop.remove();
+          if (returnFocus && returnFocus.focus) returnFocus.focus();
+        }
       });
     } else {
       sheet.remove();
       if (backdrop) backdrop.remove();
+      if (returnFocus && returnFocus.focus) returnFocus.focus();
     }
   }
 
   // ---- Modal ----
   function openModal(options) {
     var modalRoot = document.getElementById('modal-root');
+    var trigger = document.activeElement;
     var backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
 
     var modal = document.createElement('div');
     modal.className = 'modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'modal-title');
+    modal.setAttribute('tabindex', '-1');
 
     var headerHtml = '<div class="modal__header">' +
       '<button class="modal__close modal__cancel" aria-label="Cancel">' + (options.cancelLabel || 'Cancel') + '</button>' +
-      '<div class="modal__title">' + (options.title || '') + '</div>' +
+      '<div class="modal__title" id="modal-title">' + escapeHtml(options.title || '') + '</div>' +
       (options.saveLabel ? '<button class="modal__save" aria-label="Save">' + options.saveLabel + '</button>' : '<span></span>') +
       '</div>';
 
@@ -130,10 +171,20 @@ window.FT.Planner = (function () {
     // or one orphaned handler accumulates per modal open on touch devices
     function closeModal() {
       document.removeEventListener('keydown', escHandler);
+      document.body.classList.remove('modal-open');
       backdrop.remove();
+      if (trigger && trigger.focus) trigger.focus();
     }
     var escHandler = function (e) {
       if (e.key === 'Escape') closeModal();
+      if (e.key === 'Tab') {
+        var focusable = modal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (!focusable.length) { e.preventDefault(); modal.focus(); return; }
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     };
 
     backdrop.appendChild(modal);
@@ -143,10 +194,13 @@ window.FT.Planner = (function () {
     document.addEventListener('keydown', escHandler);
 
     modalRoot.appendChild(backdrop);
+    document.body.classList.add('modal-open');
 
     if (options.onMount) {
       options.onMount(modal, closeModal);
     }
+    var initialFocus = modal.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
+    (initialFocus || modal).focus();
 
     return { close: closeModal };
   }
@@ -277,6 +331,41 @@ window.FT.Planner = (function () {
         });
 
         setTimeout(function () { modal.querySelector('#dog-name').focus(); }, 120);
+      }
+    });
+  }
+
+  function openWeekModal(dog, onSave) {
+    var current = dog.weekNumber != null ? dog.weekNumber : '';
+    openModal({
+      title: 'Training week',
+      saveLabel: 'Save',
+      body: '<div class="form-group">' +
+        '<label class="form-label" for="quick-week-number">Training week for ' + escapeHtml(dog.name) + '</label>' +
+        '<input type="number" class="form-input" id="quick-week-number" min="0" value="' + escapeAttr(current) + '" placeholder="Leave blank to stop tracking">' +
+        '<p class="settings-section__hint">The week number advances automatically each Monday.</p>' +
+      '</div>',
+      onMount: function (modal, close) {
+        modal.querySelector('.modal__save').addEventListener('click', function () {
+          var value = modal.querySelector('#quick-week-number').value.trim();
+          if (value === '') {
+            dog.weekNumber = null;
+            dog.weekNumberSetDate = null;
+          } else {
+            dog.weekNumber = Math.max(0, parseInt(value, 10) || 0);
+            var today = new Date();
+            var day = today.getDay();
+            var diff = day === 0 ? -6 : 1 - day;
+            var monday = new Date(today);
+            monday.setDate(today.getDate() + diff);
+            var mm = String(monday.getMonth() + 1).padStart(2, '0');
+            var dd = String(monday.getDate()).padStart(2, '0');
+            dog.weekNumberSetDate = monday.getFullYear() + '-' + mm + '-' + dd;
+          }
+          FT.Storage.saveDog(dog);
+          close();
+          if (onSave) onSave();
+        });
       }
     });
   }
@@ -507,14 +596,14 @@ window.FT.Planner = (function () {
       html += '<div class="dog-card' + (isExpanded ? ' expanded' : '') + '" data-dog-id="' + dog.id + '">';
 
       var wkNum = dog.weekNumber != null ? dog.weekNumber : '';
-      html += '<div class="dog-card__header">' +
+      html += '<div class="dog-card__header" role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="dog-body-' + dog.id + '">' +
         '<span class="dog-card__chevron">›</span>' +
         '<span class="dog-card__name">' +
           (info.conflict ? '<span class="dog-card__conflict-dot" title="Booking conflict this week"></span>' : '') +
           '<span class="dog-card__name-text">' + escapeHtml(dog.name) + '</span>' +
           (dog.breed ? '<span class="dog-card__breed">· ' + escapeHtml(dog.breed) + '</span>' : '') +
         '</span>' +
-        (wkNum !== '' ? '<span class="dog-card__week-badge" data-week-dog="' + dog.id + '" title="Training week (tap to edit)">Wk ' + wkNum + '</span>' : '<span></span>') +
+        (wkNum !== '' ? '<span class="dog-card__week-badge" data-week-dog="' + dog.id + '" role="button" tabindex="0" aria-label="Edit training week for ' + escapeHtml(dog.name) + '">Wk ' + wkNum + '</span>' : '<span></span>') +
         '<button class="dog-card__menu" data-edit-dog="' + dog.id + '" aria-label="Edit dog">✎</button>' +
       '</div>';
 
@@ -538,7 +627,7 @@ window.FT.Planner = (function () {
         : '<button class="glance-note-btn glance-note-btn--empty" data-notes-dog="' + dog.id + '">+ Note</button>';
       html += '<div class="dog-card__glance">' + badge + glanceKit + noteBtn + '</div>';
 
-      html += '<div class="dog-card__body">';
+      html += '<div class="dog-card__body" id="dog-body-' + dog.id + '">';
 
       html += '<div class="dog-card__equipment">' +
         '<span class="dog-card__equipment-label">Kit</span>' +
@@ -601,7 +690,9 @@ window.FT.Planner = (function () {
       ? !!expandedCards[dogId]
       : card.classList.contains('expanded');
     expandedCards[dogId] = !wasExpanded;
-    if (window.gsap && body) {
+    var header = card.querySelector('.dog-card__header');
+    if (header) header.setAttribute('aria-expanded', wasExpanded ? 'false' : 'true');
+    if (window.gsap && !prefersReducedMotion() && body) {
       window.gsap.killTweensOf(body); // rapid re-taps must not stack competing tweens
       if (wasExpanded) {
         window.gsap.to(body, {
@@ -654,6 +745,14 @@ window.FT.Planner = (function () {
       el.addEventListener('click', function (e) {
         if (e.target.closest('[data-edit-dog]') || e.target.closest('[data-week-dog]') || e.target.closest('[data-notes-dog]')) return;
         toggleCard(this.closest('.dog-card'));
+      });
+    });
+    container.querySelectorAll('.dog-card__header').forEach(function (el) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleCard(this.closest('.dog-card'));
+        }
       });
     });
 
@@ -752,26 +851,13 @@ window.FT.Planner = (function () {
         var dogId = this.dataset.weekDog;
         var dog = FT.Storage.getDog(dogId);
         if (!dog) return;
-        var current = dog.weekNumber != null ? dog.weekNumber : '';
-        var newVal = prompt('Training week for ' + dog.name + ':', current);
-        if (newVal === null) return;
-        newVal = newVal.trim();
-        if (newVal === '') {
-          dog.weekNumber = null;
-          dog.weekNumberSetDate = null;
-        } else {
-          dog.weekNumber = parseInt(newVal) || 0;
-          var today = new Date();
-          var day = today.getDay();
-          var diff = day === 0 ? -6 : 1 - day;
-          var monday = new Date(today);
-          monday.setDate(today.getDate() + diff);
-          var mm = String(monday.getMonth() + 1).padStart(2, '0');
-          var dd = String(monday.getDate()).padStart(2, '0');
-          dog.weekNumberSetDate = monday.getFullYear() + '-' + mm + '-' + dd;
+        openWeekModal(dog, function () { render(container); });
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.click();
         }
-        FT.Storage.saveDog(dog);
-        render(container);
       });
     });
 

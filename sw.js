@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ft-planner-v8';
+const CACHE_NAME = 'ft-planner-v9';
 // GSAP core (CDN) — precached so bottom-sheet/card animations work offline.
 // Cached non-fatally: if the CDN is unreachable at install time the app
 // still installs and the UI falls back to CSS transitions.

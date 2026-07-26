@@ -104,6 +104,12 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+body.modal-open { overflow: hidden; }
+
+:where(button, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
 body {
   font-family: var(--font);
   font-size: 17px;
@@ -1071,6 +1077,23 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   border-bottom: 1px solid var(--separator);
   cursor: pointer;
   min-height: 50px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+}
+.settings-link-row:disabled { opacity: .6; cursor: wait; }
+.settings-dirty::before {
+  content: 'Unsaved settings changes';
+  display: block;
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 13px;
+  font-weight: 700;
 }
 .settings-link-row:last-child { border-bottom: 0; }
 .settings-link-row__label {
@@ -1369,3 +1392,12 @@ button.snapshot__tile:active { transform: scale(0.96); }
    tween owns the transform; without GSAP the CSS path still runs. */
 .bottom-sheet.gsap-anim { transition: none; }
 .dog-card__body { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -30,13 +30,18 @@ window.FT = window.FT || {};
     if (syncBtn) {
       syncBtn.addEventListener('click', function () {
         if (syncBtn.classList.contains('is-syncing')) return;
+        if (currentView === 'settings' && FT.Settings.isDirty()) {
+          FT.Settings.toast('Save or discard Settings changes before syncing', true);
+          return;
+        }
         syncBtn.classList.add('is-syncing');
-        FT.Storage.pushAllToSheets(function () {
-          FT.Storage.syncFromSheets(function (ok) {
-            syncBtn.classList.remove('is-syncing');
-            FT.Settings.toast(ok ? 'Synced with Google Sheets' : 'Sync failed');
-            if (ok) navigateTo(currentView);
-          });
+        syncBtn.setAttribute('aria-busy', 'true');
+        FT.Settings.toast('Checking for updates…');
+        FT.Storage.syncFromSheets(function (ok) {
+          syncBtn.classList.remove('is-syncing');
+          syncBtn.removeAttribute('aria-busy');
+          FT.Settings.toast(ok ? 'Sync check complete' : 'Not synced — tap to retry', !ok);
+          if (ok) navigateTo(currentView);
         });
       });
     }
@@ -57,15 +62,27 @@ window.FT = window.FT || {};
     navigateTo('planner');
 
     FT.Storage.syncFromSheets(function (success) {
-      if (success) navigateTo(currentView);
+      if (success && !(currentView === 'settings' && FT.Settings.isDirty())) {
+        navigateTo(currentView);
+      }
+    });
+    window.addEventListener('beforeunload', function (e) {
+      if (FT.Settings && FT.Settings.isDirty()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     });
   }
 
   function navigateTo(viewName) {
+    if (currentView === 'settings' && viewName !== 'settings' &&
+        FT.Settings && !FT.Settings.canLeave()) return;
     currentView = viewName;
 
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.view === viewName);
+      if (btn.dataset.view === viewName) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
     });
 
     var headerTitle = document.getElementById('header-title');

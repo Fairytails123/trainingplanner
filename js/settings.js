@@ -6,8 +6,10 @@ window.FT = window.FT || {};
 
 window.FT.Settings = (function () {
   'use strict';
+  var dirty = false;
 
   function render(container) {
+    dirty = false;
     var timeSlots = FT.Storage.getTimeSlots();
     var equipment = FT.Storage.getEquipment();
     var sheetsUrl = FT.Storage.getSheetsUrl();
@@ -18,13 +20,13 @@ window.FT.Settings = (function () {
     html += '<div class="settings-section">';
     html += '<div class="settings-section__title">Sync</div>';
     html += '<div class="settings-section__body">';
-    html += '<div class="settings-link-row" id="sync-now-row">' +
+    html += '<button type="button" class="settings-link-row" id="sync-now-row">' +
       '<div>' +
         '<div class="settings-link-row__label">Sync with Google Sheets</div>' +
-        '<div class="settings-link-row__sub">Push & pull all dogs and slot assignments</div>' +
+        '<div class="settings-link-row__sub">Safely merge dogs and slot assignments</div>' +
       '</div>' +
       '<span class="settings-link-row__chev" id="sync-status">›</span>' +
-    '</div>';
+    '</button>';
     html += '<div class="settings-row" style="padding:12px 12px;">' +
       '<input type="text" class="form-input" id="sheets-url" value="' + escapeAttr(sheetsUrl || '') + '" placeholder="Sheets API URL" style="flex:1;">' +
       '<button class="btn btn-secondary btn-sm" id="save-url-btn">Save</button>' +
@@ -125,15 +127,19 @@ window.FT.Settings = (function () {
     var syncRow = container.querySelector('#sync-now-row');
     if (syncRow) {
       syncRow.addEventListener('click', function () {
+        if (dirty) {
+          showToast('Save or discard Settings changes before syncing', true);
+          return;
+        }
         var statusEl = container.querySelector('#sync-status');
         if (statusEl) statusEl.textContent = 'Syncing…';
-        FT.Storage.pushAllToSheets(function () {
-          FT.Storage.syncFromSheets(function (ok) {
-            showToast(ok ? 'Synced with Google Sheets' : 'Sync failed');
-            if (ok) { render(container); return; } // re-render so rows show the pulled config
-            if (statusEl) statusEl.textContent = '!';
-            setTimeout(function () { if (statusEl) statusEl.textContent = '›'; }, 1500);
-          });
+        syncRow.disabled = true;
+        FT.Storage.syncFromSheets(function (ok) {
+          syncRow.disabled = false;
+          showToast(ok ? 'Sync check complete' : 'Not synced — tap to retry', !ok);
+          if (ok) { render(container); return; }
+          if (statusEl) statusEl.textContent = '!';
+          setTimeout(function () { if (statusEl) statusEl.textContent = '›'; }, 1500);
         });
       });
     }
@@ -145,6 +151,22 @@ window.FT.Settings = (function () {
         FT.Storage.setSheetsUrl(url);
         // an empty value falls back to the built-in endpoint — don't claim it was saved
         showToast(url ? 'Sheets URL saved' : 'URL cleared — sync uses the built-in endpoint');
+      });
+    }
+
+    if (!container.ftSettingsDirtyWired) {
+      container.ftSettingsDirtyWired = true;
+      container.addEventListener('input', function (e) {
+        if (e.target.closest('#settings-slots, #settings-equipment')) {
+          dirty = true;
+          container.classList.add('settings-dirty');
+        }
+      });
+      container.addEventListener('click', function (e) {
+        if (e.target.closest('[data-delete-slot], [data-delete-equip], #add-slot-btn, #add-equip-btn')) {
+          dirty = true;
+          container.classList.add('settings-dirty');
+        }
       });
     }
 
@@ -186,6 +208,8 @@ window.FT.Settings = (function () {
           newSlots.push({ id: id, label: label, shortLabel: shortLabel || label, period: period });
         });
         FT.Storage.saveTimeSlots(newSlots);
+        dirty = false;
+        container.classList.remove('settings-dirty');
         showToast('Time slots saved');
       });
     }
@@ -228,6 +252,8 @@ window.FT.Settings = (function () {
           newEquip.push({ id: id, label: label, colour: colour, textColour: textColour });
         });
         FT.Storage.saveEquipment(newEquip);
+        dirty = false;
+        container.classList.remove('settings-dirty');
         showToast('Equipment saved');
       });
     }
@@ -297,18 +323,26 @@ window.FT.Settings = (function () {
     }
   }
 
-  function showToast(message) {
+  function showToast(message, isError) {
     var existing = document.querySelector('.toast');
     if (existing) existing.remove();
     var toast = document.createElement('div');
     toast.className = 'toast';
+    toast.setAttribute('role', isError ? 'alert' : 'status');
+    toast.setAttribute('aria-live', isError ? 'assertive' : 'polite');
     toast.textContent = message;
     document.body.appendChild(toast);
     requestAnimationFrame(function () { toast.classList.add('show'); });
     setTimeout(function () {
       toast.classList.remove('show');
       setTimeout(function () { toast.remove(); }, 300);
-    }, 1800);
+    }, isError ? 5000 : 2200);
+  }
+
+  function isDirty() { return dirty; }
+  function canLeave() {
+    if (!dirty) return true;
+    return confirm('Discard unsaved time-slot or equipment changes?');
   }
 
   function escapeAttr(str) {
@@ -320,5 +354,5 @@ window.FT.Settings = (function () {
   // Shared escaper (defined in storage.js, which loads first); fall back defensively.
   var escapeHtml = (FT.Util && FT.Util.escapeHtml) || escapeAttr;
 
-  return { render: render, toast: showToast };
+  return { render: render, toast: showToast, isDirty: isDirty, canLeave: canLeave };
 })();

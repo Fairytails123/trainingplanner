@@ -22,6 +22,8 @@ window.FT.Storage = (function () {
     dogs: 'ft_dogs',
     configSlots: 'ft_config_timeslots',
     configEquipment: 'ft_config_equipment',
+    pendingConfigSlots: 'ft_pending_config_timeslots',
+    pendingConfigEquipment: 'ft_pending_config_equipment',
     sheetsUrl: 'ft_sheets_api_url',
     deleted: 'ft_deleted_dogs'
   };
@@ -185,6 +187,7 @@ window.FT.Storage = (function () {
 
     var merged = [];
     var localOnly = [];
+    var localNewer = [];
 
     // All local dogs: keep them, check if Sheet has a newer version
     localDogs.forEach(function (local) {
@@ -197,6 +200,7 @@ window.FT.Storage = (function () {
           merged.push(sheet);
         } else {
           merged.push(local);
+          if (localTime > sheetTime) localNewer.push(local);
         }
       } else {
         // Local only: keep and flag for push to Sheet
@@ -212,7 +216,7 @@ window.FT.Storage = (function () {
       }
     });
 
-    return { all: merged, localOnly: localOnly };
+    return { all: merged, localOnly: localOnly, localNewer: localNewer };
   }
 
   /**
@@ -226,6 +230,7 @@ window.FT.Storage = (function () {
       if (!deleted[dogId]) merged[dogId] = localSlots[dogId];
     });
     var localOnly = [];
+    var localNewer = [];
 
     // Sheet slots override local (or add new) — but never for a deleted dog
     Object.keys(sheetSlots).forEach(function (dogId) {
@@ -237,6 +242,8 @@ window.FT.Storage = (function () {
         var sheetTime = sheet.updatedAt || sheet.createdAt || '';
         if (sheetTime > localTime) {
           merged[dogId] = sheet;
+        } else if (localTime > sheetTime) {
+          localNewer.push(local);
         }
       } else {
         merged[dogId] = sheet;
@@ -251,7 +258,7 @@ window.FT.Storage = (function () {
       }
     });
 
-    return { all: merged, localOnly: localOnly };
+    return { all: merged, localOnly: localOnly, localNewer: localNewer };
   }
 
   /**
@@ -292,10 +299,12 @@ window.FT.Storage = (function () {
         var dogMerge = mergeDogLists(localDogs, sheetDogs);
         write(KEYS.dogs, dogMerge.all);
 
-        // Push local-only dogs to Sheet
-        if (dogMerge.localOnly.length > 0) {
-          console.log('Pushing ' + dogMerge.localOnly.length + ' local-only dogs to Sheet');
-          dogMerge.localOnly.forEach(function (dog) {
+        // Push only records that are missing remotely or provably newer locally.
+        // This is non-destructive: unlike syncAll it never clears shared sheets.
+        var dogsToPush = dogMerge.localOnly.concat(dogMerge.localNewer || []);
+        if (dogsToPush.length > 0) {
+          console.log('Pushing ' + dogsToPush.length + ' local dog changes to Sheet');
+          dogsToPush.forEach(function (dog) {
             syncToSheets('saveDog', dog);
           });
         }
@@ -311,6 +320,9 @@ window.FT.Storage = (function () {
 
             // Push local-only assignments
             slotMerge.localOnly.forEach(function (assignment) {
+              syncToSheets('setSlot', assignment);
+            });
+            (slotMerge.localNewer || []).forEach(function (assignment) {
               syncToSheets('setSlot', assignment);
             });
           });
@@ -333,11 +345,28 @@ window.FT.Storage = (function () {
           }
         }
 
-        // Merge config (Sheet wins for config since it's shared)
-        if (data.timeSlots && data.timeSlots.length > 0) {
+        // Shared config normally follows the Sheet. A locally saved config remains
+        // protected until a later read proves the fire-and-forget write arrived.
+        var pendingSlots = read(KEYS.pendingConfigSlots);
+        if (pendingSlots) {
+          if (JSON.stringify(data.timeSlots || []) === JSON.stringify(pendingSlots)) {
+            localStorage.removeItem(KEYS.pendingConfigSlots);
+          } else {
+            write(KEYS.configSlots, pendingSlots);
+            syncToSheets('saveTimeSlots', pendingSlots);
+          }
+        } else if (data.timeSlots && data.timeSlots.length > 0) {
           write(KEYS.configSlots, data.timeSlots);
         }
-        if (data.equipment && data.equipment.length > 0) {
+        var pendingEquipment = read(KEYS.pendingConfigEquipment);
+        if (pendingEquipment) {
+          if (JSON.stringify(data.equipment || []) === JSON.stringify(pendingEquipment)) {
+            localStorage.removeItem(KEYS.pendingConfigEquipment);
+          } else {
+            write(KEYS.configEquipment, pendingEquipment);
+            syncToSheets('saveEquipment', pendingEquipment);
+          }
+        } else if (data.equipment && data.equipment.length > 0) {
           write(KEYS.configEquipment, data.equipment);
         }
 
@@ -516,13 +545,16 @@ window.FT.Storage = (function () {
       var idx = dogs.findIndex(function (d) { return d.id === dog.id; });
       if (idx >= 0) {
         dogs[idx] = Object.assign({}, dogs[idx], dog, { updatedAt: now });
+        dog = dogs[idx];
       } else {
         dog.createdAt = now;
+        dog.updatedAt = now;
         dogs.push(dog);
       }
     } else {
       dog.id = generateId('dog');
       dog.createdAt = now;
+      dog.updatedAt = now;
       dog.archived = false;
       dog.equipment = dog.equipment || [];
       dogs.push(dog);
@@ -648,6 +680,7 @@ window.FT.Storage = (function () {
 
   function saveTimeSlots(slots) {
     write(KEYS.configSlots, slots);
+    write(KEYS.pendingConfigSlots, slots);
     syncToSheets('saveTimeSlots', slots);
   }
 
@@ -664,6 +697,7 @@ window.FT.Storage = (function () {
 
   function saveEquipment(items) {
     write(KEYS.configEquipment, items);
+    write(KEYS.pendingConfigEquipment, items);
     syncToSheets('saveEquipment', items);
   }
 

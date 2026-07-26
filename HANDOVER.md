@@ -18,6 +18,32 @@ Merge rules: newest `updatedAt` wins for dogs and slots; Sheet wins for config.
 
 ---
 
+## Session record — 26 July 2026
+
+### Data-preserving UX and accessibility hardening
+
+- Manual Sync no longer calls the destructive `syncAll` path. It now pulls and
+  merges by `updatedAt`, preserves tombstones, and re-sends only local-only or
+  provably newer local dogs/assignments. The legacy backend action remains for
+  compatibility but is no longer reachable from the normal UI.
+- Pending time-slot/equipment writes are stored in additive
+  `ft_pending_config_*` keys until a later `getAll` confirms the Sheet matches,
+  preventing an early pull from discarding a fire-and-forget config save.
+- Existing localStorage keys, object fields, Sheet columns, API actions, dog ids,
+  assignments, archives, and deletion tombstones are unchanged.
+- Dialogs/bottom sheets now expose dialog semantics, focus handling, Escape
+  support, focus restoration and background scroll locking. Dog cards and week
+  badges are keyboard-operable; tabs expose `aria-current`; toasts are live
+  status/alert regions; visible focus, browser zoom and reduced motion are
+  supported.
+- Settings tracks unsaved slot/equipment edits, blocks background re-render and
+  navigation loss, and warns before a page unload.
+- Cache bust: `sw.js` `CACHE_NAME` → `ft-planner-v9`.
+- Verification: syntax checks, tombstone regression suite, and new local-newer /
+  remote-newer / pending-config preservation tests pass. A read-only live backup
+  was captured before deployment (`live-data-backup-pre-ux-2026-07-26.json`,
+  workspace root; 16 dogs, 22 tombstones).
+
 ## Session record — 15 July 2026
 
 ### Backend hardening — max-effort review of the server-side week-increment + write lock
