@@ -1,6 +1,6 @@
 /**
  * ============================================
- * Fairy Tails K9 — Training Planner
+ * Fairy Tails K9 ÔÇö Training Planner
  * Google Apps Script (paste into your Google Sheet)
  * ============================================
  *
@@ -22,12 +22,15 @@
  *    Tab: Config_Equipment
  *    Headers: id | label | colour | textColour
  *
- *    Tab: Deletions  (auto-created on first delete — no manual setup needed)
+ *    Tab: Deletions (auto-created by handleDeleteDog)
  *    Headers: id | deletedAt
  *
- * 3. Go to Extensions → Apps Script
+ *    Tab: Report_Dismissals (auto-created by handleDismissReport_)
+ *    Headers: dogId | date | dismissedAt
+ *
+ * 3. Go to Extensions ÔåÆ Apps Script
  * 4. Delete any default code and paste this entire file
- * 5. Click Deploy → New deployment
+ * 5. Click Deploy ÔåÆ New deployment
  * 6. Type: Web app
  * 7. Execute as: Me
  * 8. Who has access: Anyone
@@ -103,6 +106,9 @@ function doPost(e) {
       case 'syncAll':
         result = handleSyncAll(body.data);
         break;
+      case 'dismissReportDate':
+        result = handleDismissReport_(body.data);
+        break;
       default:
         result = { error: 'Unknown action: ' + action };
     }
@@ -125,6 +131,20 @@ function doPost(e) {
 // ---- Config ----
 
 var SPREADSHEET_ID = '1QSlQTWJ0QcvrxFIGMzE4QZeJFT8FCl1yeZ5OG0_hFf8';
+
+// Missed-report tracker (see the "Training report tracker" section at the end
+// of this file). Literals only at global scope - never service calls (Apps
+// Script re-evaluates globals on EVERY request; a quota-bearing read here
+// would burn 2,880 reads/day against the TV's 30s poll).
+var REPORTS_FORM_ID = '240177109303044';                // JotForm EU " Training Report"
+var REPORTS_BASE_URL = 'https://eu-api.jotform.com';    // EU account - never api.jotform.com
+var REPORTS_WINDOW_DAYS = 21;                           // fetch window; TV shows last 14
+var REPORTS_CACHE_KEY = 'reportsV1';
+var REPORTS_CACHE_TTL_S = 300;                          // fresh result cache
+var REPORTS_FAIL_TTL_S = 120;                           // failed-refresh cache (outage = 1 fetch / 2 min)
+var REPORTS_LKG_PROP = 'reportsLKG';                    // last-known-good fallback
+var REPORTS_API_KEY_PROP = 'JOTFORM_API_KEY';           // set by owner in editor UI; read lazily
+var DISMISS_SHEET = 'Report_Dismissals';
 
 // ---- Helpers ----
 
@@ -415,13 +435,30 @@ function handleGetAll() {
     };
   });
 
+  // Missed-report tracker data. Wrapped like autoIncrementWeekNumbers above:
+  // a JotForm outage or any bug in this feature must never break the read the
+  // TV depends on. ok:false tells the TV "unavailable - render no tracker"
+  // (never fake "missed"). Dismissals are read fresh each poll (not cached)
+  // so a remote delete lands within one 30s cycle.
+  var reports;
+  try {
+    var activeDogs = dogs.filter(function(d) { return !d.archived; })
+                         .map(function(d) { return { id: d.id, name: d.name }; });
+    reports = getReportsForGetAll_(activeDogs);
+    reports.dismissed = getDismissedDates_();
+  } catch (eRep) {
+    reportsSafeLog_('handleGetAll: reports threw: ' + eRep);
+    reports = { ok: false, dismissed: {} };
+  }
+
   return {
     success: true,
     dogs: dogs,
     slotsByDate: slotsByDate,
     timeSlots: timeSlots,
     equipment: equipment,
-    deletedIds: deletedIds
+    deletedIds: deletedIds,
+    reports: reports
   };
 }
 
@@ -640,4 +677,362 @@ function handleDeleteDog(data) {
   }
 
   return { success: true, id: id };
+}
+
+// ---- Training report tracker ----
+//
+// Daily training reports are submitted to a JotForm EU form. getAll returns,
+// per active dog, the report dates found in the last REPORTS_WINDOW_DAYS so
+// the TV display can flag missing ones (the TV computes "missed" client-side:
+// Mon-Thu required, 17:00 cutoff, 14-day expiry). Submissions carry a
+// free-text dog name (qid 1) and an authoritative date field (qid 2 - NOT
+// created_at, reports are often back-filled next morning), so names are
+// matched against the planner's dog list in three ambiguity-guarded tiers.
+//
+// The JotForm fetch is cached 5 min (CacheService) with a last-known-good
+// fallback in Script Properties; a failed refresh is cached 2 min so an
+// outage costs at most one UrlFetch per 2 minutes, and getAll itself never
+// fails or blocks on this feature. The API key lives ONLY in Script
+// Properties (JOTFORM_API_KEY) - never in code, logs, or responses.
+//
+// Manual overrides: the TV remote can dismiss a chip via doPost action
+// 'dismissReportDate', which appends dogId | date | dismissedAt to the
+// Report_Dismissals tab (permanent audit log; delete the row by hand to
+// un-dismiss). getAll reads that tab fresh every poll.
+
+// -- Pure helpers (no GAS services - covered by the node test harness at
+//    ft-training-planner/.claude/reports-matching-test.js) --
+
+// Lowercase, punctuation -> space, collapse whitespace. "Enzo & Miles" -> "enzo miles"
+function normalizeName_(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Tokens of a normalized name, minus the connector "and".
+function nameTokens_(norm) {
+  return String(norm || '').split(' ').filter(function(t) {
+    return t !== '' && t !== 'and';
+  });
+}
+
+// True when a and b differ by at most one edit (insert/delete/replace).
+// Ported from the feeding display's matcher. The <4-char guard keeps short
+// names ("Ty", "Gus") exact-only, where a single edit is too big a leap.
+function oneEditApart_(a, b) {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  var i = 0;
+  while (i < a.length && i < b.length && a.charAt(i) === b.charAt(i)) i++;
+  var j = 0;
+  while (j < a.length - i && j < b.length - i &&
+         a.charAt(a.length - 1 - j) === b.charAt(b.length - 1 - j)) j++;
+
+  return (a.length - i - j) <= 1 && (b.length - i - j) <= 1;
+}
+
+function buildDogIndex_(activeDogs) {
+  return (activeDogs || []).map(function(d) {
+    var norm = normalizeName_(d && d.name);
+    return { id: d && d.id, norm: norm, tokens: nameTokens_(norm) };
+  }).filter(function(d) { return !!d.id && d.norm !== ''; });
+}
+
+// Report name -> dogId. Tiers: exact -> token membership ("enzo" or "miles"
+// -> "Enzo and Miles") -> one-edit fuzzy ("rollo" -> "Rolo"). At every tier
+// ALL candidates are collected first; a 2+ tie returns null with NO
+// fall-through, so an ambiguous report fails toward "missed" (the
+// attention-drawing direction) instead of guessing a dog.
+function matchReportName_(reportNorm, index) {
+  if (!reportNorm) return null;
+  var reportTokens = nameTokens_(reportNorm);
+  if (reportTokens.length === 0) return null;
+
+  var hits = index.filter(function(d) { return d.norm === reportNorm; });
+  if (hits.length === 1) return hits[0].id;
+  if (hits.length > 1) return null;
+
+  hits = index.filter(function(d) {
+    return reportTokens.some(function(t) { return d.tokens.indexOf(t) !== -1; });
+  });
+  if (hits.length === 1) return hits[0].id;
+  if (hits.length > 1) return null;
+
+  hits = index.filter(function(d) {
+    return reportTokens.some(function(rt) {
+      return d.tokens.some(function(dt) { return oneEditApart_(rt, dt); });
+    });
+  });
+  if (hits.length === 1) return hits[0].id;
+  return null;
+}
+
+// Raw JotForm submissions -> [{name, date}]. Answers are keyed by qid
+// STRINGS: '1' = dog name (free text), '2' = date. The date answer is
+// usually {day, month, year, datetime: 'YYYY-MM-DD 00:00:00'}; prefer
+// datetime, fall back to the parts, tolerate a bare string.
+function extractReportPairs_(rawSubmissions) {
+  var pairs = [];
+  var skipped = 0;
+  (rawSubmissions || []).forEach(function(sub) {
+    if (!sub || sub.status === 'DELETED') return;
+    var answers = sub.answers || {};
+    var nameAns = answers['1'] && answers['1'].answer;
+    var name = (nameAns === null || nameAns === undefined) ? '' : String(nameAns).trim();
+    if (!name) { skipped++; return; }
+
+    var dateAns = answers['2'] && answers['2'].answer;
+    var date = '';
+    if (dateAns && typeof dateAns === 'object') {
+      if (dateAns.datetime) {
+        date = String(dateAns.datetime).slice(0, 10);
+      } else if (dateAns.year && dateAns.month && dateAns.day) {
+        date = String(dateAns.year) + '-' +
+               ('0' + String(dateAns.month)).slice(-2) + '-' +
+               ('0' + String(dateAns.day)).slice(-2);
+      }
+    } else if (dateAns) {
+      date = String(dateAns).slice(0, 10);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { skipped++; return; }
+
+    pairs.push({ name: name, date: date });
+  });
+  return { pairs: pairs, skipped: skipped };
+}
+
+// Pairs + dog index -> { dates: {dogId: [sorted unique dates]}, unmatched, dropped }.
+// Future-dated and out-of-window dates are dropped (a typo'd future date must
+// not linger; the fetch window bounds payload size).
+function assembleReportDates_(pairs, index, todayStr, windowStartStr) {
+  var byDog = {};
+  var unmatched = {};
+  var dropped = 0;
+  (pairs || []).forEach(function(p) {
+    if (p.date > todayStr || p.date < windowStartStr) { dropped++; return; }
+    var dogId = matchReportName_(normalizeName_(p.name), index);
+    if (!dogId) { unmatched[p.name] = true; return; }
+    if (!byDog[dogId]) byDog[dogId] = {};
+    byDog[dogId][p.date] = true;
+  });
+  var dates = {};
+  Object.keys(byDog).forEach(function(id) {
+    dates[id] = Object.keys(byDog[id]).sort();
+  });
+  return { dates: dates, unmatched: Object.keys(unmatched), dropped: dropped };
+}
+
+// 'YYYY-MM-DD' + delta days -> 'YYYY-MM-DD' (numeric-component Date round
+// trip, same style as ymdToMs_; '' for malformed input).
+function ymdAddDays_(ymd, delta) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd));
+  if (!m) return '';
+  var d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10) + delta);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+// -- GAS-touching side --
+
+function ymdToday_() {
+  var d = new Date(); // script TZ (Europe/London)
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+// All logging on the reports path goes through this: the apiKey rides in the
+// fetch URL and GAS exception messages echo URLs, so redact before logging.
+function reportsSafeLog_(msg) {
+  Logger.log(String(msg).replace(/apiKey=[^&\s]+/g, 'apiKey=***'));
+}
+
+// One JotForm fetch + parse + match. Returns the reports object or null on
+// any failure (caller handles fallback). Never throws.
+function refreshReports_(activeDogs) {
+  var key;
+  try {
+    key = PropertiesService.getScriptProperties().getProperty(REPORTS_API_KEY_PROP);
+  } catch (eProp) {
+    reportsSafeLog_('reports: property read failed: ' + eProp);
+    return null;
+  }
+  if (!key) {
+    reportsSafeLog_('reports: ' + REPORTS_API_KEY_PROP + ' not set (owner: editor > Project Settings > Script Properties)');
+    return null;
+  }
+
+  var todayStr = ymdToday_();
+  var windowStartStr = ymdAddDays_(todayStr, -REPORTS_WINDOW_DAYS);
+  // A report's created_at is always >= its training date, so a created_at
+  // window of 21 days captures every report whose DATE is within 21 days.
+  var filter = JSON.stringify({ 'created_at:gt': windowStartStr + ' 00:00:00', 'status:ne': 'DELETED' });
+  var url = REPORTS_BASE_URL + '/form/' + REPORTS_FORM_ID + '/submissions' +
+            '?apiKey=' + encodeURIComponent(key) +
+            '&limit=1000&orderby=created_at' +
+            '&filter=' + encodeURIComponent(filter);
+
+  var response;
+  try {
+    response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+  } catch (eFetch) {
+    reportsSafeLog_('reports: fetch threw: ' + eFetch);
+    return null;
+  }
+
+  var code = response.getResponseCode();
+  if (code !== 200) {
+    reportsSafeLog_('reports: HTTP ' + code + ': ' + String(response.getContentText() || '').slice(0, 200));
+    return null;
+  }
+
+  var parsed;
+  try {
+    parsed = JSON.parse(response.getContentText());
+  } catch (eParse) {
+    reportsSafeLog_('reports: response JSON parse failed');
+    return null;
+  }
+  if (!parsed || parsed.responseCode !== 200 || !Array.isArray(parsed.content)) {
+    reportsSafeLog_('reports: unexpected body (responseCode=' + (parsed && parsed.responseCode) + ')');
+    return null;
+  }
+  if (parsed.content.length >= 1000) {
+    // Overflow drops the NEWEST rows (ascending order) - the dangerous
+    // direction (false misseds). ~10 reports/day = 5x headroom today.
+    reportsSafeLog_('reports: WINDOW OVERFLOW - 1000 rows returned; newest reports may be missing');
+  }
+
+  var extracted = extractReportPairs_(parsed.content);
+  var assembled = assembleReportDates_(extracted.pairs, buildDogIndex_(activeDogs), todayStr, windowStartStr);
+  reportsSafeLog_('reports: refresh ok - ' + parsed.content.length + ' rows, ' +
+    extracted.pairs.length + ' usable, ' + extracted.skipped + ' skipped, ' +
+    assembled.dropped + ' out-of-window, dogs matched: ' + Object.keys(assembled.dates).length +
+    (assembled.unmatched.length ? ', unmatched: ' + assembled.unmatched.join(', ') : ''));
+
+  return {
+    ok: true,
+    fetchedAt: new Date().toISOString(),
+    windowDays: REPORTS_WINDOW_DAYS,
+    dates: assembled.dates
+  };
+}
+
+// Persist the last successful refresh so a JotForm outage serves recent data
+// (marked stale) instead of nothing. Written only when the dates actually
+// changed - fetchedAt alone must not cause 288 property writes a day.
+function updateReportsLKG_(obj) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var prev = props.getProperty(REPORTS_LKG_PROP);
+    if (prev) {
+      try {
+        if (JSON.stringify(JSON.parse(prev).dates) === JSON.stringify(obj.dates)) return;
+      } catch (eCmp) { /* unparseable previous value: overwrite it */ }
+    }
+    props.setProperty(REPORTS_LKG_PROP, JSON.stringify(obj));
+  } catch (e) {
+    reportsSafeLog_('reports: LKG write failed: ' + e);
+  }
+}
+
+// The per-poll entry point. Cache-hit path = exactly ONE CacheService read.
+// Never throws. Deliberately NOT under the script lock: holding it through a
+// UrlFetch would block every planner write; a cache-expiry stampede just
+// costs a few duplicate JotForm fetches per 5 minutes.
+function getReportsForGetAll_(activeDogs) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = null;
+    try { cached = cache.get(REPORTS_CACHE_KEY); } catch (eGet) { /* treat as miss */ }
+    if (cached) {
+      try { return JSON.parse(cached); } catch (eParse) { /* corrupt: treat as miss */ }
+    }
+
+    var fresh = refreshReports_(activeDogs);
+    if (fresh) {
+      try { cache.put(REPORTS_CACHE_KEY, JSON.stringify(fresh), REPORTS_CACHE_TTL_S); } catch (ePut) {}
+      updateReportsLKG_(fresh);
+      return fresh;
+    }
+
+    // Refresh failed: serve last-known-good marked stale, else ok:false.
+    // Either way cache it briefly so the outage doesn't fetch per-poll.
+    var served = { ok: false };
+    try {
+      var lkg = PropertiesService.getScriptProperties().getProperty(REPORTS_LKG_PROP);
+      if (lkg) {
+        var parsedLkg = JSON.parse(lkg);
+        if (parsedLkg && parsedLkg.ok === true) {
+          parsedLkg.stale = true;
+          served = parsedLkg;
+        }
+      }
+    } catch (eLkg) {
+      reportsSafeLog_('reports: LKG read failed: ' + eLkg);
+    }
+    try { cache.put(REPORTS_CACHE_KEY, JSON.stringify(served), REPORTS_FAIL_TTL_S); } catch (ePut2) {}
+    return served;
+  } catch (eAny) {
+    reportsSafeLog_('reports: getReportsForGetAll_ threw: ' + eAny);
+    return { ok: false };
+  }
+}
+
+// Manual dismissals, grouped by dogId, window-filtered. Read fresh on every
+// getAll (small tab) so a TV-remote delete lands within one 30s poll rather
+// than a 5-minute cache cycle.
+function getDismissedDates_() {
+  var sheet = getSheet(DISMISS_SHEET);
+  if (!sheet) return {};
+  var todayStr = ymdToday_();
+  var windowStartStr = ymdAddDays_(todayStr, -REPORTS_WINDOW_DAYS);
+  var out = {};
+  sheetToObjects(sheet).forEach(function(r) {
+    if (!r.dogId || !/^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) return;
+    if (r.date < windowStartStr || r.date > todayStr) return;
+    if (!out[r.dogId]) out[r.dogId] = [];
+    if (out[r.dogId].indexOf(r.date) === -1) out[r.dogId].push(r.date);
+  });
+  Object.keys(out).forEach(function(id) { out[id].sort(); });
+  return out;
+}
+
+// doPost action 'dismissReportDate' {dogId, date}: the TV remote's manual
+// override. Idempotent append (fire-and-forget clients may re-send). The tab
+// is the audit trail; deleting its row un-dismisses.
+function handleDismissReport_(data) {
+  var dogId = data && data.dogId;
+  var date = data ? String(data.date || '') : '';
+  if (!dogId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { error: 'dismissReportDate requires dogId and date (YYYY-MM-DD)' };
+  }
+  var todayStr = ymdToday_();
+  if (date > todayStr || date < ymdAddDays_(todayStr, -REPORTS_WINDOW_DAYS)) {
+    return { error: 'dismissReportDate: date outside the tracked window' };
+  }
+  var dogsSheet = getSheet('Dogs');
+  if (!dogsSheet || findRowIndex(dogsSheet, 0, dogId) < 0) {
+    return { error: 'dismissReportDate: unknown dogId' };
+  }
+  var sheet = getOrCreateSheet(DISMISS_SHEET, ['dogId', 'date', 'dismissedAt']);
+  if (findRowIndex2(sheet, 0, dogId, 1, date) < 0) {
+    sheet.appendRow([dogId, date, new Date().toISOString()]);
+  }
+  return { success: true, dogId: dogId, date: date };
+}
+
+// Owner-run only (editor > select function > Run): verifies the JotForm
+// fetch end-to-end and - critically - triggers the one-time OAuth grant for
+// the script.external_request scope that UrlFetchApp adds. Run it once,
+// approve the prompt, BEFORE redeploying prod. Not routed via doGet/doPost.
+function testReportsRefresh() {
+  var dogsSheet = getSheet('Dogs');
+  var dogs = dogsSheet ? sheetToObjects(dogsSheet) : [];
+  var active = dogs.filter(function(d) { return d.archived !== 'true'; })
+                   .map(function(d) { return { id: d.id, name: d.name }; });
+  var result = refreshReports_(active);
+  reportsSafeLog_('testReportsRefresh: ' + (result ? JSON.stringify(result.dates) : 'FAILED - see log lines above'));
 }
