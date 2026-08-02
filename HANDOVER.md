@@ -63,13 +63,21 @@ and rendering: display repo `HANDOVER.md`, 1 August entry.
   `refresh ok — 77 rows, 10 dogs matched`. Prod redeployed **`@9 → @10`**
   (same `/exec` URL); live `getAll` verified `reports.ok:true` with all
   pre-existing fields intact. Chips + a live remote-dismiss were demoed with a
-  temporary demo dog **`dog_test_reports_demo` ("ZZ Test Dog") — still on the
-  live Sheet pending owner sign-off; remove via the app's permanent delete**
-  (its 28 Jul dismissal row in `Report_Dismissals` can be hand-deleted too).
+  temporary demo dog `dog_test_reports_demo` ("ZZ Test Dog"), **deleted (and
+  tombstoned) at end of session** — its one inert 28 Jul audit row in
+  `Report_Dismissals` (row 2) is left for the owner to hand-delete (harmless
+  if kept: the dog id is tombstoned, the TV ignores it; browser automation
+  couldn't reliably drive the Sheets grid — renderer wouldn't screenshot).
+  **The owner live-tested the real thing the same morning: 4 genuine chip
+  dismissals logged ~10:11 (Gus 23 Jul, Kedra 20 Jul, Puppy class 21+28 Jul)
+  — never delete those rows, they'd resurrect the chips.** Owner also
+  confirmed the colour rules (green=today post-17:00, amber=yesterday,
+  red=2+ days, calendar days) and the freshness pipeline (TV poll 30s →
+  backend JotForm cache 5 min ⇒ ~5½ min worst case; ~288 JotForm calls/day).
   Known data notes: JotForm reports exist for an unmatched dog name "Zero"
   (deliberately ignored); the "Puppy class park session" entry will always
   show missed chips since no reports are filed for it — owner to decide
-  (archive it or accept the chips).
+  (archive it, accept the chips, or build an exclusion flag next session).
 
 ## Session record — 26 July 2026
 
