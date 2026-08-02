@@ -57,6 +57,19 @@ and rendering: display repo `HANDOVER.md`, 1 August entry.
   report-tracker 45), mirror `google-apps-script.js` is byte-identical to
   `.appsscript-work/Code.js`, prod `getAll` healthy at `@9` (no `reports`
   key, as expected), Pages serving display `?v=20260801`.
+- **GONE LIVE later on 2 August:** owner pasted `JOTFORM_API_KEY` into Script
+  Properties (value never touched a transcript) and approved the
+  `script.external_request` OAuth consent; `testReportsRefresh()` logged
+  `refresh ok — 77 rows, 10 dogs matched`. Prod redeployed **`@9 → @10`**
+  (same `/exec` URL); live `getAll` verified `reports.ok:true` with all
+  pre-existing fields intact. Chips + a live remote-dismiss were demoed with a
+  temporary demo dog **`dog_test_reports_demo` ("ZZ Test Dog") — still on the
+  live Sheet pending owner sign-off; remove via the app's permanent delete**
+  (its 28 Jul dismissal row in `Report_Dismissals` can be hand-deleted too).
+  Known data notes: JotForm reports exist for an unmatched dog name "Zero"
+  (deliberately ignored); the "Puppy class park session" entry will always
+  show missed chips since no reports are filed for it — owner to decide
+  (archive it or accept the chips).
 
 ## Session record — 26 July 2026
 
