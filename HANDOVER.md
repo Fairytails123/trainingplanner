@@ -21,6 +21,43 @@ must never call the destructive legacy `syncAll`.
 
 ---
 
+## Session record — 1 August 2026 (record completed 2 August)
+
+### Shared backend: missed training-report tracker (no planner app change)
+
+The shared Apps Script backend gained the **missed training-report tracker**
+consumed by the TV display: `getAll` now returns a top-level `reports` field
+(submitted JotForm report dates + manual dismissals per active dog) and a new
+`dismissReportDate` POST action appends to a `Report_Dismissals` audit tab.
+Full contract, caching/LKG design, ambiguity-guarded name matching and ops
+notes: workspace `APPS_SCRIPT.md` § "Training report tracker". TV-side rules
+and rendering: display repo `HANDOVER.md`, 1 August entry.
+
+- **Planner app code is untouched** — this repo's change is the mirror sync
+  only (`google-apps-script.js`, commit `e924526`). No `sw.js` cache bust
+  needed (no served asset changed).
+- Backend pure logic is covered by `node .claude/reports-matching-test.js`
+  (38 assertions; vm-loads the live `.appsscript-work/Code.js`).
+- **⚠️ Deploy state: pushed to Apps Script `@HEAD` only — prod is still `@9`
+  and does NOT serve `reports`.** The live display (`?v=20260801`) correctly
+  renders no tracker with the muted "Report data unavailable" note until prod
+  flips. Redeploy is **blocked on two owner-only steps**, in order:
+  1. Set Script Property `JOTFORM_API_KEY` (editor → Project Settings →
+     Script Properties) to the **post-rotation** JotForm key — the rotation
+     itself is the pending top-priority sweep in `CODING\CLAUDE.md`.
+  2. Run `testReportsRefresh()` once in the Apps Script editor and approve
+     the new `script.external_request` OAuth scope (first-ever `UrlFetchApp`).
+     **Redeploying before the grant risks the anonymous web app serving an
+     auth page and breaking the TV's 30s poll.**
+  Then: `clasp redeploy AKfycbz…564RrR`, curl-verify `reports.ok:true`,
+  live-test one chip dismissal (row appears in `Report_Dismissals`), reload
+  the TV browser.
+- Resume-session verification (2 August): all five node suites pass
+  (smoke / tombstone / sync-preservation / reports-matching 38 / display
+  report-tracker 45), mirror `google-apps-script.js` is byte-identical to
+  `.appsscript-work/Code.js`, prod `getAll` healthy at `@9` (no `reports`
+  key, as expected), Pages serving display `?v=20260801`.
+
 ## Session record — 26 July 2026
 
 ### Data-preserving UX and accessibility hardening
