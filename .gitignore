@@ -2,3 +2,7 @@
 .claude/
 # Stale local copy of the app (OneDrive accident, April 2026) — do not commit
 /Dog training ops/
+
+.task/
+
+.gate-evidence/
